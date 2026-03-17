@@ -11,9 +11,9 @@ from stellarbridge_mcp import config
 @pytest.fixture(autouse=True)
 def reset_settings(monkeypatch):
     """Reset settings to known values for each test."""
-    monkeypatch.setattr(config.settings, "stellarbridge_api_url", "http://localhost:8080")
-    monkeypatch.setattr(config.settings, "stellarbridge_api_key", "test-api-key")
-    monkeypatch.setattr(config.settings, "stellarbridge_jwt_token", "")
+    monkeypatch.setattr(config.settings, "api_url", "http://localhost:8080")
+    monkeypatch.setattr(config.settings, "api_key", "test-api-key")
+    monkeypatch.setattr(config.settings, "jwt_token", "")
     monkeypatch.setattr(config.settings, "http_timeout", 5.0)
 
 
@@ -45,7 +45,7 @@ class TestAuthentication:
         assert client._token == "jwt-lazy"
 
     def test_raises_without_api_key(self, monkeypatch):
-        monkeypatch.setattr(config.settings, "stellarbridge_api_key", "")
+        monkeypatch.setattr(config.settings, "api_key", "")
         client = StellarBridgeClient()
         with pytest.raises(RuntimeError, match="No API key configured"):
             client._authenticate()
@@ -116,7 +116,7 @@ class TestListObjects:
 
 class TestBaseUrl:
     def test_trailing_slash_stripped(self, monkeypatch, httpx_mock: pytest_httpx.HTTPXMock):
-        monkeypatch.setattr(config.settings, "stellarbridge_api_url", "http://localhost:8080/")
+        monkeypatch.setattr(config.settings, "api_url", "http://localhost:8080/")
         httpx_mock.add_response(
             method="POST",
             url="http://localhost:8080/api/v1/auth",
@@ -179,6 +179,57 @@ class TestGetTransferPublicInfo:
         requests = httpx_mock.get_requests()
         assert len(requests) == 1
         assert "Authorization" not in requests[0].headers
+
+
+class TestMultipartTransferRoutes:
+    def test_multipart_routes_are_relative_to_api_v1(
+        self, httpx_mock: pytest_httpx.HTTPXMock
+    ):
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/auth",
+            json={"token": "tok"},
+        )
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/bridge/uploads/initialize-multipart-upload",
+            json={"fileId": "up-1", "fileKey": "key"},
+        )
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/bridge/uploads/get-multipart-presigned-urls",
+            json={"parts": []},
+        )
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/bridge/uploads/finalize-multipart-upload",
+            json={"transferId": "tid-1"},
+        )
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/bridge/uploads/cancel",
+            json={"ok": True},
+        )
+
+        client = StellarBridgeClient()
+        client.initialize_multipart_upload({"name": "big.zip", "size": 100})
+        client.get_multipart_presigned_urls({"fileId": "up-1", "fileKey": "key", "parts": 1})
+        client.finalize_multipart_upload(
+            {
+                "fileId": "up-1",
+                "fileKey": "key",
+                "parts": [{"PartNumber": 1, "ETag": "etag"}],
+                "size": 100,
+            }
+        )
+        client.cancel_multipart_upload({"fileId": "up-1", "fileKey": "key"})
+
+        multipart_requests = [
+            req
+            for req in httpx_mock.get_requests()
+            if req.url.path.startswith("/api/v1/bridge/uploads/")
+        ]
+        assert len(multipart_requests) == 4
 
 
 def test_get_client_singleton(monkeypatch):

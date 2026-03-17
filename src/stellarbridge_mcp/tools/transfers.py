@@ -63,9 +63,7 @@ def get_transfer_public_info(
 @mcp.tool()
 def initialize_multipart_upload(
     file_name: Annotated[str, "Name of the file being uploaded"],
-    mime_type: Annotated[str, "MIME type, e.g. application/pdf"],
     size_bytes: Annotated[int, "Total file size in bytes"],
-    expiry_hours: Annotated[int | None, "Hours until transfer expires (default: server default)"] = None,
 ) -> Any:
     """Initialise a multipart upload for a new transfer.
 
@@ -73,29 +71,24 @@ def initialize_multipart_upload(
     get_multipart_presigned_urls and finalize_multipart_upload.
     """
     payload: dict[str, Any] = {
-        "fileName": file_name,
-        "mimeType": mime_type,
-        "sizeBytes": size_bytes,
+        "name": file_name,
+        "size": size_bytes,
     }
-    if expiry_hours is not None:
-        payload["expiryHours"] = expiry_hours
     return get_client().initialize_multipart_upload(payload)
 
 
 @mcp.tool()
 def get_multipart_presigned_urls(
     upload_id: Annotated[str, "Upload ID from initialize_multipart_upload"],
-    s3_key: Annotated[str, "S3 key from initialize_multipart_upload"],
-    s3_bucket: Annotated[str, "S3 bucket from initialize_multipart_upload"],
-    part_numbers: Annotated[list[int], "List of part numbers (1-based) to get URLs for"],
+    file_key: Annotated[str, "File key from initialize_multipart_upload"],
+    parts: Annotated[int, "Number of parts (1-based count) to generate URLs for"],
 ) -> Any:
     """Get presigned PUT URLs for individual parts of a multipart upload."""
     return get_client().get_multipart_presigned_urls(
         {
-            "uploadId": upload_id,
-            "s3Key": s3_key,
-            "s3Bucket": s3_bucket,
-            "partNumbers": part_numbers,
+            "fileId": upload_id,
+            "fileKey": file_key,
+            "parts": parts,
         }
     )
 
@@ -103,20 +96,20 @@ def get_multipart_presigned_urls(
 @mcp.tool()
 def finalize_multipart_upload(
     upload_id: Annotated[str, "Upload ID from initialize_multipart_upload"],
-    s3_key: Annotated[str, "S3 key from initialize_multipart_upload"],
-    s3_bucket: Annotated[str, "S3 bucket from initialize_multipart_upload"],
+    file_key: Annotated[str, "File key from initialize_multipart_upload"],
     parts: Annotated[
         list[dict[str, Any]],
         'Completed parts list, each with "PartNumber" (int) and "ETag" (str)',
     ],
+    size_bytes: Annotated[int, "Total file size in bytes"],
 ) -> Any:
     """Finalise a multipart upload after all parts have been PUT to S3."""
     return get_client().finalize_multipart_upload(
         {
-            "uploadId": upload_id,
-            "s3Key": s3_key,
-            "s3Bucket": s3_bucket,
+            "fileId": upload_id,
+            "fileKey": file_key,
             "parts": parts,
+            "size": size_bytes,
         }
     )
 
@@ -124,10 +117,7 @@ def finalize_multipart_upload(
 @mcp.tool()
 def cancel_multipart_upload(
     upload_id: Annotated[str, "Upload ID to cancel"],
-    s3_key: Annotated[str, "S3 key from initialize_multipart_upload"],
-    s3_bucket: Annotated[str, "S3 bucket from initialize_multipart_upload"],
+    file_key: Annotated[str, "File key from initialize_multipart_upload"],
 ) -> Any:
     """Cancel an in-progress multipart upload and clean up S3 resources."""
-    return get_client().cancel_multipart_upload(
-        {"uploadId": upload_id, "s3Key": s3_key, "s3Bucket": s3_bucket}
-    )
+    return get_client().cancel_multipart_upload({"fileId": upload_id, "fileKey": file_key})

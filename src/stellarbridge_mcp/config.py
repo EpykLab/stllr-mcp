@@ -7,15 +7,19 @@ class Settings(BaseSettings):
     """Server configuration loaded from environment variables."""
 
     # Stellarbridge API base URL (no trailing slash, no /api/v1 suffix)
-    stellarbridge_api_url: str = "http://localhost:8080"
+    # Env: STELLARBRIDGE_API_URL
+    api_url: str = "http://localhost:8080"
 
-    # API key used to authenticate with Stellarbridge (exchanged for JWT)
-    stellarbridge_api_key: str = ""
+    # API key sent as X-API-Key on every request to Stellarbridge
+    # Env: STELLARBRIDGE_API_KEY
+    api_key: str = ""
 
-    # Optional: pre-supply a JWT token directly (skips /auth exchange)
-    stellarbridge_jwt_token: str = ""
+    # Optional pre-supplied JWT token (skips /auth exchange)
+    # Env: STELLARBRIDGE_JWT_TOKEN
+    jwt_token: str = ""
 
     # HTTP timeout in seconds for API calls
+    # Env: STELLARBRIDGE_HTTP_TIMEOUT
     http_timeout: float = 30.0
 
     model_config = {"env_prefix": "STELLARBRIDGE_", "env_file": ".env", "extra": "ignore"}

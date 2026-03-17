@@ -81,40 +81,38 @@ class TestMultipartUpload:
     def test_initialize(self, mock_client):
         mock_client.initialize_multipart_upload.return_value = {"uploadId": "up-1"}
         result = initialize_multipart_upload(
-            file_name="big.zip", mime_type="application/zip", size_bytes=50_000_000
+            file_name="big.zip", size_bytes=50_000_000
         )
         assert result["uploadId"] == "up-1"
         called_payload = mock_client.initialize_multipart_upload.call_args[0][0]
-        assert called_payload["fileName"] == "big.zip"
-        assert "expiryHours" not in called_payload
-
-    def test_initialize_with_expiry(self, mock_client):
-        mock_client.initialize_multipart_upload.return_value = {}
-        initialize_multipart_upload(
-            file_name="f.bin", mime_type="application/octet-stream",
-            size_bytes=100, expiry_hours=48
-        )
-        payload = mock_client.initialize_multipart_upload.call_args[0][0]
-        assert payload["expiryHours"] == 48
+        assert called_payload["name"] == "big.zip"
+        assert called_payload["size"] == 50_000_000
 
     def test_get_presigned_urls(self, mock_client):
         mock_client.get_multipart_presigned_urls.return_value = {"urls": []}
         get_multipart_presigned_urls(
-            upload_id="up-1", s3_key="key", s3_bucket="bucket", part_numbers=[1, 2]
+            upload_id="up-1", file_key="key", parts=2
         )
         payload = mock_client.get_multipart_presigned_urls.call_args[0][0]
-        assert payload["partNumbers"] == [1, 2]
+        assert payload["fileId"] == "up-1"
+        assert payload["fileKey"] == "key"
+        assert payload["parts"] == 2
 
     def test_finalize(self, mock_client):
         mock_client.finalize_multipart_upload.return_value = {"transferId": "tid-1"}
         parts = [{"PartNumber": 1, "ETag": "etag1"}]
         finalize_multipart_upload(
-            upload_id="up-1", s3_key="key", s3_bucket="bucket", parts=parts
+            upload_id="up-1", file_key="key", parts=parts, size_bytes=5_242_880
         )
         payload = mock_client.finalize_multipart_upload.call_args[0][0]
+        assert payload["fileId"] == "up-1"
+        assert payload["fileKey"] == "key"
         assert payload["parts"] == parts
+        assert payload["size"] == 5_242_880
 
     def test_cancel(self, mock_client):
         mock_client.cancel_multipart_upload.return_value = None
-        cancel_multipart_upload(upload_id="up-1", s3_key="key", s3_bucket="bucket")
-        mock_client.cancel_multipart_upload.assert_called_once()
+        cancel_multipart_upload(upload_id="up-1", file_key="key")
+        mock_client.cancel_multipart_upload.assert_called_once_with(
+            {"fileId": "up-1", "fileKey": "key"}
+        )

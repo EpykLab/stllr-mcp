@@ -1,4 +1,4 @@
-"""HTTP client for the Stellarbridge API with automatic JWT authentication."""
+"""HTTP client for the Stellarbridge API using X-API-Key on every request."""
 
 from __future__ import annotations
 
@@ -13,47 +13,23 @@ from .config import settings
 class StellarBridgeClient:
     """Thin async HTTP client for the Stellarbridge REST API.
 
-    Handles JWT acquisition (via API key exchange) and token refresh
-    transparently.  A single shared instance is used across all MCP tool
-    invocations within a server process.
+    Sends X-API-Key on every request. A single shared instance is used
+    across all MCP tool invocations within a server process.
     """
-
-    def __init__(self) -> None:
-        self._token: str = settings.stellarbridge_jwt_token
-        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _base(self) -> str:
-        return settings.stellarbridge_api_url.rstrip("/") + "/api/v1"
+        return settings.api_url.rstrip("/") + "/api/v1"
 
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+        api_key = settings.api_key
+        if api_key:
+            headers["X-API-Key"] = api_key
         return headers
-
-    def _authenticate(self) -> None:
-        """Exchange API key for JWT token (synchronous, called lazily)."""
-        api_key = settings.stellarbridge_api_key
-        if not api_key:
-            raise RuntimeError(
-                "No API key configured. Set STELLARBRIDGE_API_KEY environment variable."
-            )
-        url = self._base().replace("/api/v1", "") + "/api/v1/auth"
-        with httpx.Client(timeout=settings.http_timeout) as client:
-            resp = client.post(url, json={"apiKey": api_key})
-            resp.raise_for_status()
-            data = resp.json()
-            self._token = data["token"]
-
-    def _ensure_token(self) -> None:
-        if not self._token:
-            with self._lock:
-                if not self._token:
-                    self._authenticate()
 
     # ------------------------------------------------------------------
     # Low-level request helpers
@@ -66,10 +42,13 @@ class StellarBridgeClient:
         *,
         params: dict[str, Any] | None = None,
         json: Any = None,
-        retry: bool = True,
     ) -> Any:
-        """Make an authenticated request, retrying once on 401."""
-        self._ensure_token()
+        """Make a request with X-API-Key header."""
+        api_key = settings.api_key
+        if not api_key:
+            raise RuntimeError(
+                "No API key configured. Set STELLARBRIDGE_API_KEY environment variable."
+            )
         url = f"{self._base()}{path}"
         with httpx.Client(timeout=settings.http_timeout) as client:
             resp = client.request(
@@ -79,29 +58,10 @@ class StellarBridgeClient:
                 params={k: v for k, v in (params or {}).items() if v is not None},
                 json=json,
             )
-            if resp.status_code == 401 and retry:
-                # Token may have expired – re-authenticate once
-                self._token = ""
-                self._authenticate()
-                return self._request(method, path, params=params, json=json, retry=False)
             resp.raise_for_status()
             if resp.content:
                 return resp.json()
             return None
-
-    # ------------------------------------------------------------------
-    # Auth
-    # ------------------------------------------------------------------
-
-    def authenticate(self, api_key: str) -> str:
-        """Explicitly authenticate with the given API key, return JWT."""
-        url = f"{self._base()}/auth"
-        with httpx.Client(timeout=settings.http_timeout) as client:
-            resp = client.post(url, json={"apiKey": api_key})
-            resp.raise_for_status()
-            data = resp.json()
-            self._token = data["token"]
-            return self._token
 
     # ------------------------------------------------------------------
     # Drive / VFS – objects
@@ -180,7 +140,7 @@ class StellarBridgeClient:
         return self._request("GET", f"/transfers/{transfer_id}")
 
     def delete_transfer(self, transfer_id: str) -> Any:
-        return self._request("DELETE", f"/bridge/download/delete-transfer/{transfer_id}")
+        return self._request("DELETE", f"/transfers/{transfer_id}")
 
     def share_transfer(self, transfer_id: str, recipient_email: str) -> Any:
         return self._request(
