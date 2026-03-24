@@ -97,6 +97,15 @@ class TestRenameAndMoveDriveObject:
         move_drive_object(object_id=5, new_parent_id=20)
         mock_client.update_object.assert_called_once_with(5, {"parentId": 20})
 
+    def test_move_to_project_root(self, mock_client):
+        mock_client.update_object.return_value = {"id": 5, "parentId": None}
+        move_drive_object(object_id=5)
+        mock_client.update_object.assert_called_once_with(5, {"parentId": None})
+
+    def test_move_rejects_zero_parent(self, mock_client):
+        with pytest.raises(ValueError, match="cannot be 0"):
+            move_drive_object(object_id=5, new_parent_id=0)
+
 
 class TestDeleteDriveObject:
     def test_deletes_object(self, mock_client):

@@ -79,9 +79,21 @@ def rename_drive_object(
 @mcp.tool()
 def move_drive_object(
     object_id: Annotated[int, "ID of the object to move"],
-    new_parent_id: Annotated[int, "ID of the destination folder"],
+    new_parent_id: Annotated[
+        int | None,
+        "Destination folder ID; omit this argument to move to the project root. Do not use 0.",
+    ] = None,
 ) -> Any:
-    """Move a Drive file or folder to a different parent folder."""
+    """Move a Drive file or folder to another folder or to the project root.
+
+    Project root matches list_drive_objects (no parent) and create_drive_folder
+    (omit parent): pass no destination folder ID, not 0.
+    """
+    if new_parent_id == 0:
+        raise ValueError(
+            "new_parent_id cannot be 0. Omit new_parent_id (or pass null) to move to the "
+            "project root, or pass the real folder ID of the destination."
+        )
     return get_client().update_object(object_id, {"parentId": new_parent_id})
 
 
