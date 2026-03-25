@@ -107,7 +107,7 @@ class StellarBridgeClient:
 
     def attach_policy(self, object_id: int, policy_id: str) -> Any:
         return self._request(
-            "POST", f"/objects/{object_id}/policy-attachments", json={"policyId": policy_id}
+            "POST", f"/objects/{object_id}/policy-attachments", json={"policy_id": policy_id}
         )
 
     def detach_policy(self, object_id: int, attachment_id: str) -> Any:

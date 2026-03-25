@@ -37,9 +37,10 @@ def create_drive_folder(
     parent_id: Annotated[int | None, "Parent folder ID; omit to create at project root"] = None,
 ) -> Any:
     """Create a new folder inside a Drive project."""
-    payload: dict[str, Any] = {"type": "FOLDER", "projectId": project_id, "name": name}
+    # API expects snake_case in JSON payloads.
+    payload: dict[str, Any] = {"type": "FOLDER", "project_id": project_id, "name": name}
     if parent_id is not None:
-        payload["parentId"] = parent_id
+        payload["parent_id"] = parent_id
     return get_client().create_object(payload)
 
 
@@ -56,14 +57,15 @@ def create_drive_file_placeholder(
     presigned S3 PUT URL, upload the file bytes directly to that URL, then
     call complete_drive_upload to finalise the object.
     """
+    # API expects snake_case in JSON payloads.
     payload: dict[str, Any] = {
         "type": "FILE",
-        "projectId": project_id,
+        "project_id": project_id,
         "name": name,
-        "mimeType": mime_type,
+        "mime_type": mime_type,
     }
     if parent_id is not None:
-        payload["parentId"] = parent_id
+        payload["parent_id"] = parent_id
     return get_client().create_object(payload)
 
 
@@ -81,20 +83,15 @@ def move_drive_object(
     object_id: Annotated[int, "ID of the object to move"],
     new_parent_id: Annotated[
         int | None,
-        "Destination folder ID; omit this argument to move to the project root. Do not use 0.",
+        "Destination folder ID. Omit (or pass null) to move to the project root.",
     ] = None,
 ) -> Any:
-    """Move a Drive file or folder to another folder or to the project root.
+    """Move a Drive file or folder to a different folder, or to the project root.
 
-    Project root matches list_drive_objects (no parent) and create_drive_folder
-    (omit parent): pass no destination folder ID, not 0.
+    Note: In the Stellarbridge API, the project root is represented as parent_id=0.
     """
-    if new_parent_id == 0:
-        raise ValueError(
-            "new_parent_id cannot be 0. Omit new_parent_id (or pass null) to move to the "
-            "project root, or pass the real folder ID of the destination."
-        )
-    return get_client().update_object(object_id, {"parentId": new_parent_id})
+    parent_id = 0 if new_parent_id is None else new_parent_id
+    return get_client().update_object(object_id, {"parent_id": parent_id})
 
 
 @mcp.tool()
