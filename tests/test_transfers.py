@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import stellarbridge_mcp.tools.transfers as transfers_module
+from stellarbridge_mcp.multipart_s3_upload import DEFAULT_PART_SIZE_BYTES
 from stellarbridge_mcp.tools.transfers import (
     list_transfers,
     get_transfer,
@@ -15,6 +16,7 @@ from stellarbridge_mcp.tools.transfers import (
     get_multipart_presigned_urls,
     finalize_multipart_upload,
     cancel_multipart_upload,
+    upload_transfer_multipart_file,
 )
 
 
@@ -116,3 +118,20 @@ class TestMultipartUpload:
         mock_client.cancel_multipart_upload.assert_called_once_with(
             {"fileId": "up-1", "fileKey": "key"}
         )
+
+
+class TestUploadTransferMultipartFile:
+    def test_delegates_to_runner(self, mock_client):
+        with patch.object(
+            transfers_module,
+            "run_transfer_multipart_upload",
+            return_value={"transferId": "tid-upload"},
+        ) as run:
+            result = upload_transfer_multipart_file(
+                file_path="/tmp/local.bin",
+                file_name="remote.bin",
+                part_size_bytes=DEFAULT_PART_SIZE_BYTES,
+            )
+        assert result == {"transferId": "tid-upload"}
+        run.assert_called_once()
+        assert run.call_args[0][0] is mock_client
