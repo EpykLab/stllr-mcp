@@ -87,8 +87,12 @@ class StellarBridgeClient:
     def get_upload_url(self, object_id: int) -> Any:
         return self._request("GET", f"/objects/{object_id}/upload-url")
 
-    def complete_upload(self, object_id: int) -> Any:
-        return self._request("POST", f"/objects/{object_id}/upload/complete")
+    def complete_upload(self, object_id: int, bucket: str, etag: str, size_bytes: int) -> Any:
+        return self._request(
+            "POST",
+            f"/objects/{object_id}/upload/complete",
+            json={"bucket": bucket, "etag": etag, "size_bytes": size_bytes},
+        )
 
     def get_download_url(self, object_id: int) -> Any:
         return self._request("GET", f"/objects/{object_id}/download-url")
