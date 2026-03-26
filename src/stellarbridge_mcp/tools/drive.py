@@ -1,10 +1,14 @@
 """MCP tools for Drive / VFS operations."""
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
+import httpx
 
 from ..client import get_client
+from ..config import settings
+from ..multipart_s3_upload import strip_s3_etag
 
 mcp: FastMCP = FastMCP("stellarbridge-drive")
 
@@ -132,6 +136,66 @@ def complete_drive_upload(
     get_drive_upload_url.
     """
     return get_client().complete_upload(object_id, bucket, etag, size_bytes)
+
+
+@mcp.tool()
+def upload_drive_file_from_path(
+    object_id: Annotated[int, "ID of the Drive FILE placeholder object"],
+    file_path: Annotated[str, "Absolute path on the MCP server host to upload"],
+    content_type: Annotated[str, "Content-Type header for storage PUT"] = "application/octet-stream",
+) -> Any:
+    """Upload local file bytes to a Drive FILE placeholder and finalize it.
+
+    This performs the full sequence:
+    1) get_drive_upload_url
+    2) HTTP PUT bytes to the presigned URL
+    3) complete_drive_upload (bucket/etag/size)
+
+    Notes:
+    - The presigned URL is sensitive; this tool does not return it.
+    - The file bytes are uploaded directly to storage (S3-compatible), not via the API.
+    """
+    path = Path(file_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"not a file: {path}")
+
+    size_bytes = path.stat().st_size
+
+    upload_resp = get_client().get_upload_url(object_id)
+    if not isinstance(upload_resp, dict):
+        raise TypeError(
+            f"get_upload_url returned {type(upload_resp).__name__}, expected dict"
+        )
+
+    data = upload_resp.get("data") if isinstance(upload_resp.get("data"), dict) else upload_resp
+    bucket = data.get("bucket")
+    upload_url = data.get("upload_url") or data.get("url")
+    if not bucket or not upload_url:
+        raise ValueError(
+            "upload-url response missing bucket/upload_url; "
+            f"keys: {list((data or {}).keys())}"
+        )
+
+    with httpx.Client(timeout=settings.http_timeout) as http_client:
+        with path.open("rb") as f:
+            put_resp = http_client.put(upload_url, content=f, headers={"Content-Type": content_type})
+            put_resp.raise_for_status()
+            etag_header = put_resp.headers.get("ETag") or put_resp.headers.get("etag")
+            if not etag_header:
+                raise RuntimeError(
+                    f"Storage PUT returned no ETag header (status {put_resp.status_code})"
+                )
+            etag = strip_s3_etag(etag_header)
+
+    complete_resp = get_client().complete_upload(object_id, str(bucket), str(etag), int(size_bytes))
+
+    return {
+        "object_id": object_id,
+        "size_bytes": size_bytes,
+        "bucket": bucket,
+        "etag": etag,
+        "complete": complete_resp,
+    }
 
 
 @mcp.tool()
