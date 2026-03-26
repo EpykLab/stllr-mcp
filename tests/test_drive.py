@@ -122,8 +122,13 @@ class TestUploadDownload:
 
     def test_complete_upload(self, mock_client):
         mock_client.complete_upload.return_value = {"status": "ok"}
-        complete_drive_upload(object_id=5)
-        mock_client.complete_upload.assert_called_once_with(5)
+        complete_drive_upload(
+            object_id=5,
+            bucket="bucket-1",
+            etag="etag-1",
+            size_bytes=123,
+        )
+        mock_client.complete_upload.assert_called_once_with(5, "bucket-1", "etag-1", 123)
 
     def test_get_download_url(self, mock_client):
         mock_client.get_download_url.return_value = {"url": "https://s3.example.com/get"}

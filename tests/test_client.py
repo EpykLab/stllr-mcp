@@ -119,6 +119,21 @@ class TestPolicyAttachments:
         assert body == {"policy_id": "5"}
 
 
+class TestUploadComplete:
+    def test_complete_upload_sends_bucket_etag_size(self, httpx_mock: pytest_httpx.HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/objects/12/upload/complete",
+            json={"data": {"id": 12}, "error": None},
+        )
+        client = StellarBridgeClient()
+        client.complete_upload(12, bucket="b", etag="e", size_bytes=3)
+
+        req = httpx_mock.get_requests()[0]
+        body = json.loads(req.content.decode("utf-8"))
+        assert body == {"bucket": "b", "etag": "e", "size_bytes": 3}
+
+
 class TestGetTransferPublicInfo:
     """Public info endpoint uses unauthenticated GET."""
 

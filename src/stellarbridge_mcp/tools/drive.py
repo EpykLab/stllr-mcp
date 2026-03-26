@@ -122,13 +122,16 @@ def get_drive_upload_url(
 @mcp.tool()
 def complete_drive_upload(
     object_id: Annotated[int, "ID of the file object whose upload is complete"],
+    bucket: Annotated[str, "Bucket where the file was uploaded"],
+    etag: Annotated[str, "ETag returned by the storage PUT"],
+    size_bytes: Annotated[int, "Size of the uploaded file in bytes"],
 ) -> Any:
     """Finalise a Drive file upload after content has been PUT to the presigned URL.
 
     Must be called after uploading bytes to the presigned URL returned by
     get_drive_upload_url.
     """
-    return get_client().complete_upload(object_id)
+    return get_client().complete_upload(object_id, bucket, etag, size_bytes)
 
 
 @mcp.tool()
