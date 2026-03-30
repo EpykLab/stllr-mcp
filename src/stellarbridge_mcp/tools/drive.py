@@ -166,7 +166,7 @@ def list_object_policy_attachments(
 @mcp.tool()
 def attach_policy_to_object(
     object_id: Annotated[int, "ID of the Drive object"],
-    policy_id: Annotated[str, "ID of the policy to attach"],
+    policy_id: Annotated[int, "Numeric access policy ID to attach"],
 ) -> Any:
     """Attach an access-control policy to a Drive file or folder."""
     return get_client().attach_policy(object_id, policy_id)

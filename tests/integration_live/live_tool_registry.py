@@ -224,8 +224,8 @@ def _drive_attach_policy_to_object(_repo_root: Path) -> tuple[dict[str, Any] | N
     if r is not None:
         return None, r
     oid = _env_int("STELLARBRIDGE_TEST_OBJECT_ID")
-    policy = _env_str("STELLARBRIDGE_TEST_POLICY_ID")
-    if oid is None or not policy:
+    policy = _env_int("STELLARBRIDGE_TEST_POLICY_ID")
+    if oid is None or policy is None:
         return None, "Set STELLARBRIDGE_TEST_OBJECT_ID and STELLARBRIDGE_TEST_POLICY_ID."
     return {"object_id": oid, "policy_id": policy}, ""
 

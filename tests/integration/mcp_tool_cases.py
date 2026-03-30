@@ -186,7 +186,7 @@ TOOL_HTTP_CASES: tuple[ToolHttpCase, ...] = (
     ),
     ToolHttpCase(
         "drive_attach_policy_to_object",
-        {"object_id": 16, "policy_id": "pol-9"},
+        {"object_id": 16, "policy_id": 9},
         "POST", "/api/v1/objects/16/policy-attachments",
         None,
         200, {"attachmentId": "att-1"},
