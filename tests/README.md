@@ -74,8 +74,28 @@ Use these to validate the MCP server against a **real** Stellarbridge API (stagi
 
 | Variable | Meaning |
 |----------|---------|
-| `STELLARBRIDGE_TEST_PROJECT_ID` | If set, runs an extra smoke test that calls `drive_list_drive_objects` for this project. |
 | `STELLARBRIDGE_HTTP_TIMEOUT` | Seconds for HTTP calls (default `120` in live env). |
+| `STELLARBRIDGE_LIVE_ALLOW_MUTATIONS` | Set to `1` / `true` / `yes` / `on` to run tools that create, update, delete, or upload data (see `tests/integration_live/live_tool_registry.py`). |
+| `STELLARBRIDGE_TEST_PROJECT_ID` | Project ID for Drive and related tools. |
+| `STELLARBRIDGE_TEST_OBJECT_ID` | Drive object ID for get/rename/share/policy tools. |
+| `STELLARBRIDGE_TEST_MOVE_PARENT_OBJECT_ID` | Destination folder ID for `drive_move_drive_object` (omit env to move to project root). |
+| `STELLARBRIDGE_TEST_DELETE_OBJECT_ID` | Disposable object ID for `drive_delete_drive_object`. |
+| `STELLARBRIDGE_TEST_FILE_PLACEHOLDER_OBJECT_ID` | File placeholder for upload/complete URL tools (falls back to `STELLARBRIDGE_TEST_OBJECT_ID`). |
+| `STELLARBRIDGE_TEST_DOWNLOAD_OBJECT_ID` | File object for download URL (falls back to `STELLARBRIDGE_TEST_OBJECT_ID`). |
+| `STELLARBRIDGE_TEST_POLICY_ID` / `STELLARBRIDGE_TEST_ATTACHMENT_ID` | Policy attach/detach live tests. |
+| `STELLARBRIDGE_TEST_TRANSFER_ID` | Transfer ID for get/share/add-to-drive. |
+| `STELLARBRIDGE_TEST_PUBLIC_TRANSFER_ID` | Public transfer id (falls back to `STELLARBRIDGE_TEST_TRANSFER_ID`). |
+| `STELLARBRIDGE_TEST_DELETE_TRANSFER_ID` | Disposable transfer for `transfers_delete_transfer`. |
+| `STELLARBRIDGE_TEST_ORG_ID` | Optional org filter for `transfers_list_transfers`. |
+| `STELLARBRIDGE_TEST_MULTIPART_UPLOAD_ID` / `STELLARBRIDGE_TEST_MULTIPART_FILE_KEY` | IDs from a prior multipart init (presigned URLs / cancel / finalize). |
+| `STELLARBRIDGE_TEST_MULTIPART_SIZE_BYTES` / `STELLARBRIDGE_TEST_MULTIPART_FINALIZE_PARTS_JSON` | Finalize multipart: size and JSON array of `{"PartNumber", "ETag"}` parts. |
+| `STELLARBRIDGE_LIVE_MULTIPART_FILE_PATH` | Override path for `transfers_upload_transfer_multipart_file` (default: repo fixture `tests/fixtures/uploads/multipart_upload.bin`). |
+| `STELLARBRIDGE_TEST_REQUEST_ID` / `STELLARBRIDGE_TEST_DELETE_REQUEST_ID` | File request get/delete. |
+| `STELLARBRIDGE_TEST_RECIPIENT_EMAIL` | Email for share/create-request tools. |
+| `STELLARBRIDGE_TEST_PARTNER_IDS` | Comma-separated ints for `projects_create_project`. |
+| `STELLARBRIDGE_TEST_DELETE_PROJECT_ID` | Disposable empty project for `projects_delete_project`. |
+| `STELLARBRIDGE_TEST_ACTOR_ID` | Actor for `audit_get_audit_logs_for_actor`. |
+| `STELLARBRIDGE_TEST_AUDIT_FILE_NAME` | Optional override for `audit_get_audit_logs_for_file` (default test name if unset). |
 
 **Commands**
 
@@ -93,11 +113,10 @@ task test-integration-live
 
 (`task` does not inject URL/key; you must export them in your shell.)
 
-**What smoke tests do**
+**What live tests do**
 
-- `tools/list` includes expected tool names.
-- `projects_list_projects` returns successfully (JSON list).
-- If `STELLARBRIDGE_TEST_PROJECT_ID` is set, `drive_list_drive_objects` for that project.
+- `test_mcp_stdio_live_smoke.py`: `tools/list` returns exactly the tool set in `tests/integration/mcp_tool_cases.py` (`EXPECTED_MCP_TOOL_NAMES`).
+- `test_mcp_stdio_live_all_tools.py`: one parametrized `tools/call` per tool; arguments come from `tests/integration_live/live_tool_registry.py` (env-driven). Tools skip with a clear reason when required env or mutation opt-in is missing.
 
 ---
 
