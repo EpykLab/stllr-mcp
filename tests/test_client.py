@@ -107,7 +107,7 @@ class TestRequestBehavior:
         with pytest.raises(httpx.HTTPStatusError):
             client.get_object(999)
 
-    def test_returns_none_for_empty_response(self, httpx_mock: pytest_httpx.HTTPXMock):
+    def test_returns_none_for_empty_delete_response(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
             method="DELETE",
             url="http://localhost:8080/api/v1/objects/1",
@@ -116,6 +116,23 @@ class TestRequestBehavior:
         )
         client = StellarBridgeClient()
         assert client.delete_object(1) is None
+
+    def test_delete_object_unwraps_api_envelope(self, httpx_mock: pytest_httpx.HTTPXMock):
+        httpx_mock.add_response(
+            method="DELETE",
+            url="http://localhost:8080/api/v1/objects/1",
+            status_code=200,
+            json={
+                "data": {"id": 1, "name": "a.txt", "type": "FILE"},
+                "error": None,
+            },
+        )
+        client = StellarBridgeClient()
+        assert client.delete_object(1) == {
+            "id": 1,
+            "name": "a.txt",
+            "type": "FILE",
+        }
 
 
 class TestPolicyAttachments:

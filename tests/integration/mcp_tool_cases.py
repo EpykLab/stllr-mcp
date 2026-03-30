@@ -145,8 +145,9 @@ TOOL_HTTP_CASES: tuple[ToolHttpCase, ...] = (
         {"object_id": 9},
         "DELETE", "/api/v1/objects/9",
         None,
-        204, None,
-        None,
+        200,
+        {"data": {"id": 9, "name": "gone.txt", "type": "FILE"}, "error": None},
+        {"id": 9, "name": "gone.txt", "type": "FILE"},
     ),
     ToolHttpCase(
         "drive_get_drive_upload_url",
@@ -340,8 +341,9 @@ TOOL_HTTP_CASES: tuple[ToolHttpCase, ...] = (
         {"project_id": 41},
         "DELETE", "/api/v1/projects/41",
         None,
-        204, None,
-        None,
+        200,
+        {"data": {"id": 41, "name": "OldP", "slug": "old-p"}, "error": None},
+        {"id": 41, "name": "OldP", "slug": "old-p"},
     ),
     ToolHttpCase(
         "audit_get_audit_logs",

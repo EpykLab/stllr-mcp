@@ -50,6 +50,11 @@ class TestCreateProject:
 
 class TestDeleteProject:
     def test_deletes_by_id(self, mock_client: MagicMock) -> None:
-        mock_client.delete_project.return_value = None
-        delete_project(project_id=7)
+        mock_client.delete_project.return_value = {
+            "id": 7,
+            "name": "P",
+            "slug": "p",
+        }
+        result = delete_project(project_id=7)
         mock_client.delete_project.assert_called_once_with(7)
+        assert result["id"] == 7

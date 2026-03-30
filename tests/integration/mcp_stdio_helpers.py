@@ -35,8 +35,8 @@ def json_from_tool_result(
 ) -> Any:
     """Like :func:`first_json_from_tool_content`, but fixes FastMCP omitting a text
     block when audit list tools return an empty Python ``[]`` (``content`` is then
-    empty). DELETE/204 tools also have empty ``content``; those are left as
-    ``None`` when the tool name is not ``audit_get_audit_logs*``.
+    empty). Tools that return no serializable body may also yield empty
+    ``content`` (``None``) except ``audit_get_audit_logs*`` (treated as ``[]``).
     """
     parsed = first_json_from_tool_content(content)
     if parsed is not None:
