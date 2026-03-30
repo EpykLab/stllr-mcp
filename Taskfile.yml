@@ -21,6 +21,11 @@ tasks:
     cmds:
       - uv run pytest tests/integration -v
 
+  test-integration-live:
+    desc: MCP integration against real API (set STELLARBRIDGE_LIVE_API=1, STELLARBRIDGE_API_URL, STELLARBRIDGE_API_KEY)
+    cmds:
+      - uv run pytest tests/integration_live -v
+
   inspector:
     desc: Run the MCP server with the MCP Inspector (dev UI); uses two free ports on 127.0.0.1 (see printed URL)
     cmds:

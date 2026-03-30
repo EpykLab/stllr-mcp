@@ -42,9 +42,11 @@ dev = [
 asyncio_mode = "auto"
 markers = [
   "integration: spawn MCP stdio subprocess and/or mock HTTP API (slower than unit tests)",
+  "live_api: real Stellarbridge API (requires STELLARBRIDGE_LIVE_API=1 and credentials; see tests/integration_live/)",
 ]
-# Integration tests set STELLARBRIDGE_API_KEY / STELLARBRIDGE_API_URL via tests/integration/conftest.py
-# (and task test-integration). Do not rely on a real API for pytest runs.
+# Mock integration tests set STELLARBRIDGE_* via tests/integration/conftest.py. Live tests are opt-in
+# (tests/integration_live/); do not rely on a real API for default CI runs.
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
