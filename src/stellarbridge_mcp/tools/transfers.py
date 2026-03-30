@@ -5,6 +5,11 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 
 from ..client import get_client
+from ..config import settings
+from ..multipart_s3_upload import (
+    DEFAULT_PART_SIZE_BYTES,
+    run_transfer_multipart_upload,
+)
 
 mcp: FastMCP = FastMCP("stellarbridge-transfers")
 
@@ -121,3 +126,30 @@ def cancel_multipart_upload(
 ) -> Any:
     """Cancel an in-progress multipart upload and clean up S3 resources."""
     return get_client().cancel_multipart_upload({"fileId": upload_id, "fileKey": file_key})
+
+
+@mcp.tool()
+def upload_transfer_multipart_file(
+    file_path: Annotated[str, "Absolute path on the MCP server host to the file to upload"],
+    file_name: Annotated[
+        str | None,
+        "Name for the transfer; defaults to the basename of file_path",
+    ] = None,
+    part_size_bytes: Annotated[
+        int,
+        "Part size in bytes (minimum 5 MiB; default 8 MiB)",
+    ] = DEFAULT_PART_SIZE_BYTES,
+) -> Any:
+    """Upload a local file as a new transfer via multipart presigned PUTs to S3.
+
+    Runs initialize_multipart_upload, fetches presigned URLs, uploads each part
+    with HTTP PUT, then finalize_multipart_upload. Requires STELLARBRIDGE_API_KEY
+    and network access from the MCP process to the API and to S3.
+    """
+    return run_transfer_multipart_upload(
+        get_client(),
+        file_path,
+        file_name=file_name,
+        part_size_bytes=part_size_bytes,
+        http_timeout=settings.http_timeout,
+    )
