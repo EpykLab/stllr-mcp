@@ -1,15 +1,22 @@
-"""Tests for the StellarBridgeClient."""
+"""Tests for the StellarBridgeClient.
 
-import pytest
+The current client authenticates by sending X-API-Key on every request.
+"""
+
+from __future__ import annotations
+
+import json
+
 import httpx
+import pytest
 import pytest_httpx
 
-from stellarbridge_mcp.client import StellarBridgeClient
 from stellarbridge_mcp import config
+from stellarbridge_mcp.client import StellarBridgeClient
 
 
 @pytest.fixture(autouse=True)
-def reset_settings(monkeypatch):
+def reset_settings(monkeypatch: pytest.MonkeyPatch):
     """Reset settings to known values for each test."""
     monkeypatch.setattr(config.settings, "api_url", "http://localhost:8080")
     monkeypatch.setattr(config.settings, "api_key", "test-api-key")
@@ -17,126 +24,66 @@ def reset_settings(monkeypatch):
     monkeypatch.setattr(config.settings, "http_timeout", 5.0)
 
 
-class TestAuthentication:
-    def test_authenticate_stores_token(self, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "jwt-abc"},
-        )
-        client = StellarBridgeClient()
-        token = client.authenticate("my-api-key")
-        assert token == "jwt-abc"
-        assert client._token == "jwt-abc"
-
-    def test_lazy_auth_on_first_request(self, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "jwt-lazy"},
-        )
+class TestRequestHeaders:
+    def test_sends_x_api_key_header(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
             method="GET",
-            url="http://localhost:8080/api/v1/objects?project_id=1",
-            json=[],
+            url="http://localhost:8080/api/v1/projects",
+            json={"data": {"projects": []}, "error": None},
         )
         client = StellarBridgeClient()
-        client.list_objects(1)
-        assert client._token == "jwt-lazy"
+        client.list_projects()
 
-    def test_raises_without_api_key(self, monkeypatch):
+        req = httpx_mock.get_requests()[0]
+        assert req.headers.get("X-API-Key") == "test-api-key"
+
+    def test_raises_without_api_key(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(config.settings, "api_key", "")
         client = StellarBridgeClient()
         with pytest.raises(RuntimeError, match="No API key configured"):
-            client._authenticate()
+            client.list_projects()
 
-    def test_retries_on_401(self, httpx_mock: pytest_httpx.HTTPXMock):
-        # First GET returns 401, then re-auth, then success
-        httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "jwt-initial"},
-        )
+
+class TestBaseUrl:
+    def test_trailing_slash_stripped(self, monkeypatch: pytest.MonkeyPatch, httpx_mock):
+        monkeypatch.setattr(config.settings, "api_url", "http://localhost:8080/")
         httpx_mock.add_response(
             method="GET",
-            url="http://localhost:8080/api/v1/objects?project_id=1",
-            status_code=401,
-        )
-        httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "jwt-refreshed"},
-        )
-        httpx_mock.add_response(
-            method="GET",
-            url="http://localhost:8080/api/v1/objects?project_id=1",
-            json=[{"id": 1}],
+            url="http://localhost:8080/api/v1/projects",
+            json={"data": {"projects": []}, "error": None},
         )
         client = StellarBridgeClient()
-        result = client.list_objects(1)
-        assert result == [{"id": 1}]
-        assert client._token == "jwt-refreshed"
+        client.list_projects()
+        req = httpx_mock.get_requests()[0]
+        assert str(req.url) == "http://localhost:8080/api/v1/projects"
 
 
 class TestListObjects:
     def test_without_parent(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "tok"},
-        )
-        httpx_mock.add_response(
             method="GET",
             url="http://localhost:8080/api/v1/objects?project_id=5",
-            json=[{"id": 10, "name": "root"}],
+            json={"data": {"objects": [{"id": 10, "name": "root"}]}, "error": None},
         )
         client = StellarBridgeClient()
         result = client.list_objects(5)
-        assert result[0]["name"] == "root"
+        assert result["data"]["objects"][0]["name"] == "root"
 
     def test_params_omit_none(self, httpx_mock: pytest_httpx.HTTPXMock):
         """Request params with None values are omitted from the query string."""
         httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "tok"},
-        )
-        httpx_mock.add_response(
             method="GET",
             url="http://localhost:8080/api/v1/objects?project_id=5",
-            json=[],
+            json={"data": {"objects": []}, "error": None},
         )
         client = StellarBridgeClient()
         client.list_objects(5)
-        # Only project_id=5 should appear; parent_id must not be sent
-        requests = [r for r in httpx_mock.get_requests() if r.url.path == "/api/v1/objects"]
-        assert len(requests) == 1
-        assert "parent_id" not in str(requests[0].url)
-
-
-class TestBaseUrl:
-    def test_trailing_slash_stripped(self, monkeypatch, httpx_mock: pytest_httpx.HTTPXMock):
-        monkeypatch.setattr(config.settings, "api_url", "http://localhost:8080/")
-        httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "t"},
-        )
-        client = StellarBridgeClient()
-        client.authenticate("key")
-        # Auth URL should be normalised (no double slash before api/v1)
-        requests = [r for r in httpx_mock.get_requests() if "auth" in r.url.path]
-        assert len(requests) == 1
-        assert requests[0].url == "http://localhost:8080/api/v1/auth"
+        req = httpx_mock.get_requests()[0]
+        assert "parent_id" not in str(req.url)
 
 
 class TestRequestBehavior:
     def test_raises_on_4xx(self, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "t"},
-        )
         httpx_mock.add_response(
             method="GET",
             url="http://localhost:8080/api/v1/objects/999",
@@ -148,19 +95,43 @@ class TestRequestBehavior:
 
     def test_returns_none_for_empty_response(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "t"},
-        )
-        httpx_mock.add_response(
             method="DELETE",
             url="http://localhost:8080/api/v1/objects/1",
             status_code=200,
             content=b"",
         )
         client = StellarBridgeClient()
-        result = client.delete_object(1)
-        assert result is None
+        assert client.delete_object(1) is None
+
+
+class TestPolicyAttachments:
+    def test_attach_policy_uses_snake_case(self, httpx_mock: pytest_httpx.HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/objects/12/policy-attachments",
+            json={"data": {"attachment": {"id": 1}}, "error": None},
+        )
+        client = StellarBridgeClient()
+        client.attach_policy(12, "5")
+
+        req = httpx_mock.get_requests()[0]
+        body = json.loads(req.content.decode("utf-8"))
+        assert body == {"policy_id": "5"}
+
+
+class TestUploadComplete:
+    def test_complete_upload_sends_bucket_etag_size(self, httpx_mock: pytest_httpx.HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/objects/12/upload/complete",
+            json={"data": {"id": 12}, "error": None},
+        )
+        client = StellarBridgeClient()
+        client.complete_upload(12, bucket="b", etag="e", size_bytes=3)
+
+        req = httpx_mock.get_requests()[0]
+        body = json.loads(req.content.decode("utf-8"))
+        assert body == {"bucket": "b", "etag": "e", "size_bytes": 3}
 
 
 class TestGetAuditLogs:
@@ -189,20 +160,13 @@ class TestGetTransferPublicInfo:
         result = client.get_transfer_public_info("tid-public")
         assert result["fileName"] == "report.pdf"
         assert result["sizeBytes"] == 1024
-        requests = httpx_mock.get_requests()
-        assert len(requests) == 1
-        assert "Authorization" not in requests[0].headers
+
+        req = httpx_mock.get_requests()[0]
+        assert "X-API-Key" not in req.headers
 
 
 class TestMultipartTransferRoutes:
-    def test_multipart_routes_are_relative_to_api_v1(
-        self, httpx_mock: pytest_httpx.HTTPXMock
-    ):
-        httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/auth",
-            json={"token": "tok"},
-        )
+    def test_multipart_routes_are_relative_to_api_v1(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
             method="POST",
             url="http://localhost:8080/api/v1/bridge/uploads/initialize-multipart-upload",
@@ -245,7 +209,7 @@ class TestMultipartTransferRoutes:
         assert len(multipart_requests) == 4
 
 
-def test_get_client_singleton(monkeypatch):
+def test_get_client_singleton(monkeypatch: pytest.MonkeyPatch):
     """get_client returns the same instance across calls."""
     import stellarbridge_mcp.client as client_module
 

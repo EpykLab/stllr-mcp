@@ -14,6 +14,7 @@ from stellarbridge_mcp.tools.drive import (
     delete_drive_object,
     get_drive_upload_url,
     complete_drive_upload,
+    upload_drive_file_from_path,
     get_drive_download_url,
     share_drive_object,
     list_object_policy_attachments,
@@ -55,7 +56,7 @@ class TestCreateDriveFolder:
         mock_client.create_object.return_value = {"id": 99, "type": "FOLDER", "name": "docs"}
         result = create_drive_folder(project_id=1, name="docs")
         mock_client.create_object.assert_called_once_with(
-            {"type": "FOLDER", "projectId": 1, "name": "docs"}
+            {"type": "FOLDER", "project_id": 1, "name": "docs"}
         )
         assert result["id"] == 99
 
@@ -63,7 +64,7 @@ class TestCreateDriveFolder:
         mock_client.create_object.return_value = {"id": 100}
         create_drive_folder(project_id=1, name="sub", parent_id=50)
         mock_client.create_object.assert_called_once_with(
-            {"type": "FOLDER", "projectId": 1, "name": "sub", "parentId": 50}
+            {"type": "FOLDER", "project_id": 1, "name": "sub", "parent_id": 50}
         )
 
 
@@ -74,7 +75,7 @@ class TestCreateDriveFilePlaceholder:
             project_id=1, name="data.csv", mime_type="text/csv"
         )
         mock_client.create_object.assert_called_once_with(
-            {"type": "FILE", "projectId": 1, "name": "data.csv", "mimeType": "text/csv"}
+            {"type": "FILE", "project_id": 1, "name": "data.csv", "mime_type": "text/csv"}
         )
 
     def test_creates_file_with_parent(self, mock_client):
@@ -83,7 +84,7 @@ class TestCreateDriveFilePlaceholder:
             project_id=1, name="img.png", mime_type="image/png", parent_id=3
         )
         call_payload = mock_client.create_object.call_args[0][0]
-        assert call_payload["parentId"] == 3
+        assert call_payload["parent_id"] == 3
 
 
 class TestRenameAndMoveDriveObject:
@@ -95,17 +96,17 @@ class TestRenameAndMoveDriveObject:
     def test_move(self, mock_client):
         mock_client.update_object.return_value = {"id": 5}
         move_drive_object(object_id=5, new_parent_id=20)
-        mock_client.update_object.assert_called_once_with(5, {"parentId": 20})
+        mock_client.update_object.assert_called_once_with(5, {"parent_id": 20})
 
-    def test_move_to_project_root(self, mock_client):
-        mock_client.update_object.return_value = {"id": 5, "parentId": None}
+    def test_move_to_root_by_omitting_parent(self, mock_client):
+        mock_client.update_object.return_value = {"id": 5}
         move_drive_object(object_id=5)
-        mock_client.update_object.assert_called_once_with(5, {"parentId": None})
+        mock_client.update_object.assert_called_once_with(5, {"parent_id": 0})
 
-    def test_move_rejects_zero_parent(self, mock_client):
-        with pytest.raises(ValueError, match="cannot be 0"):
-            move_drive_object(object_id=5, new_parent_id=0)
-
+    def test_move_to_root_with_explicit_zero(self, mock_client):
+        mock_client.update_object.return_value = {"id": 5}
+        move_drive_object(object_id=5, new_parent_id=0)
+        mock_client.update_object.assert_called_once_with(5, {"parent_id": 0})
 
 class TestDeleteDriveObject:
     def test_deletes_object(self, mock_client):
@@ -122,8 +123,65 @@ class TestUploadDownload:
 
     def test_complete_upload(self, mock_client):
         mock_client.complete_upload.return_value = {"status": "ok"}
-        complete_drive_upload(object_id=5)
-        mock_client.complete_upload.assert_called_once_with(5)
+        complete_drive_upload(
+            object_id=5,
+            bucket="bucket-1",
+            etag="etag-1",
+            size_bytes=123,
+        )
+        mock_client.complete_upload.assert_called_once_with(5, "bucket-1", "etag-1", 123)
+
+    def test_upload_drive_file_from_path_puts_bytes_and_completes(self, mock_client, tmp_path, monkeypatch):
+        p = tmp_path / "test.txt"
+        p.write_text("hello")
+
+        mock_client.get_upload_url.return_value = {
+            "data": {
+                "bucket": "bkt",
+                "upload_url": "https://storage.example.com/put",
+            },
+            "error": None,
+        }
+
+        class DummyResp:
+            status_code = 200
+            headers = {"ETag": '"etag-123"'}
+
+            def raise_for_status(self):
+                return None
+
+        class DummyHttpClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def put(self, url, *, content=None, headers=None):
+                assert url == "https://storage.example.com/put"
+                assert headers == {"Content-Type": "text/plain"}
+                # Ensure content is a readable stream (file handle).
+                assert hasattr(content, "read")
+                assert content.read() == b"hello"
+                return DummyResp()
+
+        monkeypatch.setattr(drive_module.httpx, "Client", DummyHttpClient)
+
+        mock_client.complete_upload.return_value = {"ok": True}
+
+        result = upload_drive_file_from_path(
+            object_id=5,
+            file_path=str(p),
+            content_type="text/plain",
+        )
+
+        mock_client.get_upload_url.assert_called_once_with(5)
+        mock_client.complete_upload.assert_called_once_with(5, "bkt", "etag-123", 5)
+        assert result["object_id"] == 5
+        assert result["size_bytes"] == 5
 
     def test_get_download_url(self, mock_client):
         mock_client.get_download_url.return_value = {"url": "https://s3.example.com/get"}

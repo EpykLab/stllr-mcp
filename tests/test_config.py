@@ -6,7 +6,12 @@ from stellarbridge_mcp.config import Settings
 
 
 class TestSettings:
-    def test_defaults(self) -> None:
+    def test_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Ensure ambient env vars don't affect defaults.
+        monkeypatch.delenv("STELLARBRIDGE_API_URL", raising=False)
+        monkeypatch.delenv("STELLARBRIDGE_API_KEY", raising=False)
+        monkeypatch.delenv("STELLARBRIDGE_JWT_TOKEN", raising=False)
+        monkeypatch.delenv("STELLARBRIDGE_HTTP_TIMEOUT", raising=False)
         s = Settings()
         assert s.api_url == "http://localhost:8080"
         assert s.api_key == ""

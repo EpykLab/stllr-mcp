@@ -1,10 +1,14 @@
 """MCP tools for Drive / VFS operations."""
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
+import httpx
 
 from ..client import get_client
+from ..config import settings
+from ..multipart_s3_upload import strip_s3_etag
 
 mcp: FastMCP = FastMCP("stellarbridge-drive")
 
@@ -37,9 +41,10 @@ def create_drive_folder(
     parent_id: Annotated[int | None, "Parent folder ID; omit to create at project root"] = None,
 ) -> Any:
     """Create a new folder inside a Drive project."""
-    payload: dict[str, Any] = {"type": "FOLDER", "projectId": project_id, "name": name}
+    # API expects snake_case in JSON payloads.
+    payload: dict[str, Any] = {"type": "FOLDER", "project_id": project_id, "name": name}
     if parent_id is not None:
-        payload["parentId"] = parent_id
+        payload["parent_id"] = parent_id
     return get_client().create_object(payload)
 
 
@@ -56,14 +61,15 @@ def create_drive_file_placeholder(
     presigned S3 PUT URL, upload the file bytes directly to that URL, then
     call complete_drive_upload to finalise the object.
     """
+    # API expects snake_case in JSON payloads.
     payload: dict[str, Any] = {
         "type": "FILE",
-        "projectId": project_id,
+        "project_id": project_id,
         "name": name,
-        "mimeType": mime_type,
+        "mime_type": mime_type,
     }
     if parent_id is not None:
-        payload["parentId"] = parent_id
+        payload["parent_id"] = parent_id
     return get_client().create_object(payload)
 
 
@@ -81,20 +87,15 @@ def move_drive_object(
     object_id: Annotated[int, "ID of the object to move"],
     new_parent_id: Annotated[
         int | None,
-        "Destination folder ID; omit this argument to move to the project root. Do not use 0.",
+        "Destination folder ID. Omit (or pass null) to move to the project root.",
     ] = None,
 ) -> Any:
-    """Move a Drive file or folder to another folder or to the project root.
+    """Move a Drive file or folder to a different folder, or to the project root.
 
-    Project root matches list_drive_objects (no parent) and create_drive_folder
-    (omit parent): pass no destination folder ID, not 0.
+    Note: In the Stellarbridge API, the project root is represented as parent_id=0.
     """
-    if new_parent_id == 0:
-        raise ValueError(
-            "new_parent_id cannot be 0. Omit new_parent_id (or pass null) to move to the "
-            "project root, or pass the real folder ID of the destination."
-        )
-    return get_client().update_object(object_id, {"parentId": new_parent_id})
+    parent_id = 0 if new_parent_id is None else new_parent_id
+    return get_client().update_object(object_id, {"parent_id": parent_id})
 
 
 @mcp.tool()
@@ -125,13 +126,76 @@ def get_drive_upload_url(
 @mcp.tool()
 def complete_drive_upload(
     object_id: Annotated[int, "ID of the file object whose upload is complete"],
+    bucket: Annotated[str, "Bucket where the file was uploaded"],
+    etag: Annotated[str, "ETag returned by the storage PUT"],
+    size_bytes: Annotated[int, "Size of the uploaded file in bytes"],
 ) -> Any:
     """Finalise a Drive file upload after content has been PUT to the presigned URL.
 
     Must be called after uploading bytes to the presigned URL returned by
     get_drive_upload_url.
     """
-    return get_client().complete_upload(object_id)
+    return get_client().complete_upload(object_id, bucket, etag, size_bytes)
+
+
+@mcp.tool()
+def upload_drive_file_from_path(
+    object_id: Annotated[int, "ID of the Drive FILE placeholder object"],
+    file_path: Annotated[str, "Absolute path on the MCP server host to upload"],
+    content_type: Annotated[str, "Content-Type header for storage PUT"] = "application/octet-stream",
+) -> Any:
+    """Upload local file bytes to a Drive FILE placeholder and finalize it.
+
+    This performs the full sequence:
+    1) get_drive_upload_url
+    2) HTTP PUT bytes to the presigned URL
+    3) complete_drive_upload (bucket/etag/size)
+
+    Notes:
+    - The presigned URL is sensitive; this tool does not return it.
+    - The file bytes are uploaded directly to storage (S3-compatible), not via the API.
+    """
+    path = Path(file_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"not a file: {path}")
+
+    size_bytes = path.stat().st_size
+
+    upload_resp = get_client().get_upload_url(object_id)
+    if not isinstance(upload_resp, dict):
+        raise TypeError(
+            f"get_upload_url returned {type(upload_resp).__name__}, expected dict"
+        )
+
+    data = upload_resp.get("data") if isinstance(upload_resp.get("data"), dict) else upload_resp
+    bucket = data.get("bucket")
+    upload_url = data.get("upload_url") or data.get("url")
+    if not bucket or not upload_url:
+        raise ValueError(
+            "upload-url response missing bucket/upload_url; "
+            f"keys: {list((data or {}).keys())}"
+        )
+
+    with httpx.Client(timeout=settings.http_timeout) as http_client:
+        with path.open("rb") as f:
+            put_resp = http_client.put(upload_url, content=f, headers={"Content-Type": content_type})
+            put_resp.raise_for_status()
+            etag_header = put_resp.headers.get("ETag") or put_resp.headers.get("etag")
+            if not etag_header:
+                raise RuntimeError(
+                    f"Storage PUT returned no ETag header (status {put_resp.status_code})"
+                )
+            etag = strip_s3_etag(etag_header)
+
+    complete_resp = get_client().complete_upload(object_id, str(bucket), str(etag), int(size_bytes))
+
+    return {
+        "object_id": object_id,
+        "size_bytes": size_bytes,
+        "bucket": bucket,
+        "etag": etag,
+        "complete": complete_resp,
+    }
 
 
 @mcp.tool()
