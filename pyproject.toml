@@ -25,6 +25,7 @@ packages = ["src/stellarbridge_mcp"]
 
 [dependency-groups]
 dev = [
+  "python-dotenv>=1.0",
   "pytest>=8.0",
   "pytest-asyncio>=0.24",
   "pytest-httpx>=0.30",

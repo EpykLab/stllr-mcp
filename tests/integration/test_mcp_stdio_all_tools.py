@@ -9,7 +9,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from pytest_httpserver import HTTPServer
 
-from .mcp_stdio_helpers import first_json_from_tool_content
+from .mcp_stdio_helpers import json_from_tool_result
 from .mcp_tool_cases import (
     EXPECTED_MCP_TOOL_NAMES,
     TOOL_HTTP_CASES,
@@ -59,6 +59,6 @@ async def test_stdio_tool_invocation_http_contract(
             result = await session.call_tool(case.tool_name, case.arguments)
 
     assert not result.isError
-    data = first_json_from_tool_content(result.content)
+    data = json_from_tool_result(case.tool_name, result.content)
     assert data == case.expected_json
     assert len(httpserver.log) == 1

@@ -163,6 +163,19 @@ class TestRequestBehavior:
         assert result is None
 
 
+class TestGetAuditLogs:
+    def test_empty_body_returns_empty_list(self, httpx_mock: pytest_httpx.HTTPXMock):
+        """GET /logs must deserialize to a JSON array; empty HTTP body becomes []."""
+        httpx_mock.add_response(
+            method="GET",
+            url="http://localhost:8080/api/v1/logs?fileName=no-such-file.txt",
+            status_code=200,
+            content=b"",
+        )
+        client = StellarBridgeClient()
+        assert client.get_audit_logs(fileName="no-such-file.txt") == []
+
+
 class TestGetTransferPublicInfo:
     """Public info endpoint uses unauthenticated GET."""
 

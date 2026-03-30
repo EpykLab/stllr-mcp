@@ -8,7 +8,7 @@ import pytest
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from tests.integration.mcp_stdio_helpers import first_json_from_tool_content
+from tests.integration.mcp_stdio_helpers import json_from_tool_result
 
 from .live_tool_registry import LIVE_TOOL_SPECS, LiveToolSpec
 
@@ -36,6 +36,6 @@ async def test_live_stdio_call_tool(
             result = await session.call_tool(spec.tool_name, args)
 
     assert not result.isError, (
-        f"{spec.tool_name} failed: {first_json_from_tool_content(result.content)!r}"
+        f"{spec.tool_name} failed: {json_from_tool_result(spec.tool_name, result.content)!r}"
     )
-    first_json_from_tool_content(result.content)
+    json_from_tool_result(spec.tool_name, result.content)

@@ -1529,6 +1529,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-httpserver" },
     { name = "pytest-httpx" },
+    { name = "python-dotenv" },
     { name = "ruff" },
 ]
 
@@ -1552,6 +1553,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "pytest-httpserver", specifier = ">=1.1.5" },
     { name = "pytest-httpx", specifier = ">=0.30" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "ruff" },
 ]
 
