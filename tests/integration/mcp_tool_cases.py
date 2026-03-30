@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 from pytest_httpserver import HTTPServer
 
@@ -24,6 +24,7 @@ EXPECTED_MCP_TOOL_NAMES: frozenset[str] = frozenset(
         "drive_delete_drive_object",
         "drive_get_drive_upload_url",
         "drive_complete_drive_upload",
+        "drive_upload_drive_file_from_path",
         "drive_get_drive_download_url",
         "drive_share_drive_object",
         "drive_list_object_policy_attachments",
@@ -56,9 +57,12 @@ EXPECTED_MCP_TOOL_NAMES: frozenset[str] = frozenset(
     }
 )
 
-# Covered by tests/integration/test_mcp_stdio_multipart_upload.py (not single-shot HTTP cases).
+# Covered by dedicated integration tests (not single-shot ToolHttpCase).
 TOOLS_WITH_DEDICATED_HTTP_INTEGRATION: frozenset[str] = frozenset(
-    {"transfers_upload_transfer_multipart_file"}
+    {
+        "transfers_upload_transfer_multipart_file",
+        "drive_upload_drive_file_from_path",
+    }
 )
 
 
@@ -154,7 +158,12 @@ TOOL_HTTP_CASES: tuple[ToolHttpCase, ...] = (
     ),
     ToolHttpCase(
         "drive_complete_drive_upload",
-        {"object_id": 12},
+        {
+            "object_id": 12,
+            "bucket": "test-bucket",
+            "etag": "abc123",
+            "size_bytes": 1024,
+        },
         "POST", "/api/v1/objects/12/upload/complete",
         None,
         200, {"ok": True},
@@ -290,7 +299,8 @@ TOOL_HTTP_CASES: tuple[ToolHttpCase, ...] = (
         {"title": "Please upload", "recipient_email": "u@example.com"},
         "POST", "/api/v1/bridge/transfer/request/create",
         None,
-        200, {"requestId": "req-1"},
+        200,
+        {"data": {"requestId": "req-1"}, "error": None},
         {"requestId": "req-1"},
     ),
     ToolHttpCase(
@@ -359,6 +369,12 @@ TOOL_HTTP_CASES: tuple[ToolHttpCase, ...] = (
     ),
 )
 # fmt: on
+
+# Mock tools whose HTTP contract is 204 with no JSON body; live MCP may return no
+# parseable structured content (``json_from_tool_result`` is ``None``).
+LIVE_OPTIONAL_JSON_PAYLOAD_TOOLS: Final[frozenset[str]] = frozenset(
+    c.tool_name for c in TOOL_HTTP_CASES if c.expected_json is None
+)
 
 
 def assert_cases_cover_all_http_tools() -> None:

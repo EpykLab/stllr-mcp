@@ -8,7 +8,8 @@ import pytest
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from tests.integration.mcp_stdio_helpers import json_from_tool_result
+from tests.integration.mcp_tool_cases import LIVE_OPTIONAL_JSON_PAYLOAD_TOOLS
+from tests.integration.mcp_stdio_helpers import json_from_tool_result, tool_result_text_preview
 
 from .live_tool_registry import LIVE_TOOL_SPECS, LiveToolSpec
 
@@ -36,6 +37,11 @@ async def test_live_stdio_call_tool(
             result = await session.call_tool(spec.tool_name, args)
 
     assert not result.isError, (
-        f"{spec.tool_name} failed: {json_from_tool_result(spec.tool_name, result.content)!r}"
+        f"{spec.tool_name} failed: {tool_result_text_preview(result.content)}"
     )
-    json_from_tool_result(spec.tool_name, result.content)
+    parsed = json_from_tool_result(spec.tool_name, result.content)
+    if spec.tool_name not in LIVE_OPTIONAL_JSON_PAYLOAD_TOOLS:
+        assert parsed is not None, (
+            f"{spec.tool_name}: expected JSON in MCP tool result; "
+            f"got {tool_result_text_preview(result.content)}"
+        )

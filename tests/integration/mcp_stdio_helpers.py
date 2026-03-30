@@ -11,7 +11,20 @@ def first_json_from_tool_content(content: list[Any]) -> Any:
     text = _first_text_content(content)
     if text is None or text == "":
         return None
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def tool_result_text_preview(content: list[Any], *, limit: int = 4000) -> str:
+    """Raw first text block from tool content (for assertion messages when JSON parse fails)."""
+    text = _first_text_content(content)
+    if text is None:
+        return "(no text content)"
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
 
 
 def json_from_tool_result(

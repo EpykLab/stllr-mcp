@@ -1,4 +1,13 @@
-"""Live API tests: opt-in only; never run against mocks by accident."""
+"""Live API tests: opt-in only; never run against mocks by accident.
+
+These tests exercise **stdio MCP** (``tools/call``) end-to-end; they do not
+replace that with raw HTTP clients.
+
+The child MCP process calls the API via ``StellarBridgeClient``, which sends
+``STELLARBRIDGE_API_KEY`` as ``X-API-Key``. Only if you debug **outside** MCP
+(e.g. bare ``curl``) use that header; ``Authorization: Bearer`` is wrong for
+this key-based flow.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +33,10 @@ def repo_root() -> Path:
 
 @pytest.fixture
 def real_stellarbridge_env() -> Iterator[dict[str, str]]:
-    """Environment for the MCP child: real API URL and key (not mock placeholders)."""
+    """Environment for the MCP child: real API URL and key (not mock placeholders).
+
+    Same auth as the HTTP client: ``X-API-Key``, not Bearer.
+    """
     if not _truthy_env("STELLARBRIDGE_LIVE_API"):
         pytest.skip(
             "Live API tests are opt-in. Set STELLARBRIDGE_LIVE_API=1 and real "

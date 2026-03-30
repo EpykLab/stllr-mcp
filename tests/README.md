@@ -83,7 +83,7 @@ Use these to validate the MCP server against a **real** Stellarbridge API (stagi
 | `STELLARBRIDGE_TEST_FILE_PLACEHOLDER_OBJECT_ID` | File placeholder for upload/complete URL tools (falls back to `STELLARBRIDGE_TEST_OBJECT_ID`). |
 | `STELLARBRIDGE_TEST_DOWNLOAD_OBJECT_ID` | File object for download URL (falls back to `STELLARBRIDGE_TEST_OBJECT_ID`). |
 | `STELLARBRIDGE_TEST_POLICY_ID` / `STELLARBRIDGE_TEST_ATTACHMENT_ID` | Policy attach/detach live tests. |
-| `STELLARBRIDGE_TEST_TRANSFER_ID` | Transfer ID for get/share/add-to-drive. |
+| `STELLARBRIDGE_TEST_TRANSFER_ID` | Transfer id (uuid). If unset, obtain a `tid` from MCP tool **`transfers_list_transfers`** (each row has `tid`), or `task live-first-transfer-id`. |
 | `STELLARBRIDGE_TEST_PUBLIC_TRANSFER_ID` | Public transfer id (falls back to `STELLARBRIDGE_TEST_TRANSFER_ID`). |
 | `STELLARBRIDGE_TEST_DELETE_TRANSFER_ID` | Disposable transfer for `transfers_delete_transfer`. |
 | `STELLARBRIDGE_TEST_ORG_ID` | Optional org filter for `transfers_list_transfers`. |
@@ -118,6 +118,17 @@ task test-integration-live
 - `test_mcp_stdio_live_smoke.py`: `tools/list` returns exactly the tool set in `tests/integration/mcp_tool_cases.py` (`EXPECTED_MCP_TOOL_NAMES`).
 - `test_mcp_stdio_live_all_tools.py`: one parametrized `tools/call` per tool; arguments come from `tests/integration_live/live_tool_registry.py` (env-driven). Tools skip with a clear reason when required env or mutation opt-in is missing.
 
+**Resolving `STELLARBRIDGE_TEST_TRANSFER_ID` (MCP only)**
+
+Do not use raw HTTP to scrape a `tid`. From the repo root (loads `.env` like pytest):
+
+```bash
+PYTHONPATH=. uv run python tests/integration_live/print_first_transfer_id.py
+```
+
+or `task live-first-transfer-id`. Append the printed UUID to `.env` as
+`STELLARBRIDGE_TEST_TRANSFER_ID=...`.
+
 ---
 
 ## Quick reference
@@ -126,4 +137,5 @@ task test-integration-live
 |------|---------|
 | Mock MCP integration only | `uv run pytest tests/integration -v` or `task test-integration` |
 | Live API (after exporting env) | `uv run pytest tests/integration_live -v` or `task test-integration-live` |
+| First transfer `tid` via stdio MCP (for env vars) | `task live-first-transfer-id` or `PYTHONPATH=. uv run python tests/integration_live/print_first_transfer_id.py` |
 | All tests (live skipped without opt-in) | `uv run pytest` |

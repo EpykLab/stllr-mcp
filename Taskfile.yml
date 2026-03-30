@@ -26,6 +26,11 @@ tasks:
     cmds:
       - uv run pytest tests/integration_live -v
 
+  live-first-transfer-id:
+    desc: Print first transfer tid via stdio MCP (for STELLARBRIDGE_TEST_TRANSFER_ID); same path as live tests
+    cmds:
+      - PYTHONPATH=. uv run python tests/integration_live/print_first_transfer_id.py
+
   inspector:
     desc: Run the MCP server with the MCP Inspector (dev UI); uses two free ports on 127.0.0.1 (see printed URL)
     cmds:

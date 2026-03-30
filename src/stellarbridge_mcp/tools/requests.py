@@ -21,8 +21,10 @@ def create_file_request(
     """Create a file upload request to send to an external user.
 
     The recipient receives a link to upload a file without needing a
-    Stellarbridge account.  If project_id is supplied the uploaded file
-    is automatically added to the specified Drive folder on completion.
+    Stellarbridge account. The API sends the link by email only
+    (``email_invite``). Optional ``project_id`` / ``parent_id`` / ``expiry_hours``
+    are not yet mapped to the current form API; omit or extend when the
+    backend exposes them.
     """
     payload: dict[str, Any] = {"title": title, "recipientEmail": recipient_email}
     if message:

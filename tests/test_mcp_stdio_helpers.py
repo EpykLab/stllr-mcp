@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from tests.integration.mcp_stdio_helpers import (
     first_json_from_tool_content,
     json_from_tool_result,
+    tool_result_text_preview,
 )
 
 
@@ -32,3 +33,10 @@ def test_text_block_json_array() -> None:
 def test_empty_text_block_not_confused_with_missing_content() -> None:
     block = SimpleNamespace(type="text", text="")
     assert first_json_from_tool_content([block]) is None
+
+
+def test_non_json_text_not_json_decode_error() -> None:
+    """FastMCP may surface tool errors as plain text; do not raise on JSON parse."""
+    block = SimpleNamespace(type="text", text="Error: HTTP 403")
+    assert first_json_from_tool_content([block]) is None
+    assert tool_result_text_preview([block]) == "Error: HTTP 403"

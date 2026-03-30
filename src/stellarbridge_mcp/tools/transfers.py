@@ -18,7 +18,11 @@ mcp: FastMCP = FastMCP("stellarbridge-transfers")
 def list_transfers(
     org_id: Annotated[str | None, "Filter transfers by organisation ID"] = None,
 ) -> Any:
-    """List file transfers, optionally filtered by organisation."""
+    """List file transfers, optionally filtered by organisation.
+
+    Each item includes a transfer id (``tid``) for ``get_transfer`` and related
+    tools when you do not already have an id.
+    """
     return get_client().list_transfers(org_id)
 
 
@@ -26,7 +30,11 @@ def list_transfers(
 def get_transfer(
     transfer_id: Annotated[str, "ID of the transfer to retrieve"],
 ) -> Any:
-    """Get metadata for a single transfer (size, expiry, created_at, etc.)."""
+    """Get metadata for a single transfer (size, expiry, created_at, etc.).
+
+    If you do not have a transfer id, call ``list_transfers`` first and use a
+    ``tid`` from the response.
+    """
     return get_client().get_transfer(transfer_id)
 
 
@@ -43,7 +51,10 @@ def share_transfer(
     transfer_id: Annotated[str, "ID of the transfer to share"],
     recipient_email: Annotated[str, "Email address of the recipient"],
 ) -> Any:
-    """Share an existing transfer with a recipient by email."""
+    """Share an existing transfer with a recipient by email.
+
+    Use ``list_transfers`` to discover a ``tid`` when needed.
+    """
     return get_client().share_transfer(transfer_id, recipient_email)
 
 
@@ -53,7 +64,10 @@ def add_transfer_to_drive(
     project_id: Annotated[int, "Drive project to add the file into"],
     parent_id: Annotated[int | None, "Folder ID within the project; omit for root"] = None,
 ) -> Any:
-    """Move a completed transfer into a Drive project folder."""
+    """Move a completed transfer into a Drive project folder.
+
+    Use ``list_transfers`` to discover a ``tid`` when needed.
+    """
     return get_client().add_transfer_to_drive(transfer_id, project_id, parent_id)
 
 
@@ -61,7 +75,7 @@ def add_transfer_to_drive(
 def get_transfer_public_info(
     transfer_id: Annotated[str, "Public transfer ID"],
 ) -> Any:
-    """Get public metadata about a transfer (no authentication required)."""
+    """Get public-facing download metadata for a transfer (uses configured API key)."""
     return get_client().get_transfer_public_info(transfer_id)
 
 
