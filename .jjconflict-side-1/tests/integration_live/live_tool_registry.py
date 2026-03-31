@@ -38,6 +38,13 @@ _TRANSFER_TID_HINT = (
     "`task live-first-transfer-id` / tests/README.md."
 )
 
+# Create response omits upload/request id for requesters (EPY-186); see stllr#408.
+_REQUEST_ID_HINT = (
+    "Until the API returns an id on create, set STELLARBRIDGE_TEST_REQUEST_ID to "
+    "the UUID from the recipient invite email (…/public/upload/{uuid}) or another "
+    "supported source."
+)
+
 
 def _env_str(name: str) -> str | None:
     v = os.environ.get(name, "").strip()
@@ -256,6 +263,14 @@ def _drive_share_drive_object(_repo_root: Path) -> tuple[dict[str, Any] | None, 
     r = _require_mutation_allow()
     if r is not None:
         return None, r
+    # Live API returns 422 for X-API-Key callers (documented MCP limitation).
+    # Opt in when the API supports key-based share: STELLARBRIDGE_LIVE_ALLOW_DRIVE_SHARE=1
+    if not _truthy_env("STELLARBRIDGE_LIVE_ALLOW_DRIVE_SHARE"):
+        return None, (
+            "POST /objects/:id/share is not supported for API key callers on live API (422). "
+            "Set STELLARBRIDGE_LIVE_ALLOW_DRIVE_SHARE=1 when the API supports key-based share. "
+            "See test_tracking.md drive_share_drive_object."
+        )
     oid = _env_int("STELLARBRIDGE_TEST_OBJECT_ID")
     if oid is None:
         return None, "Set STELLARBRIDGE_TEST_OBJECT_ID for this tool."
@@ -460,7 +475,7 @@ def _requests_create_file_request(_repo_root: Path) -> tuple[dict[str, Any] | No
 def _requests_get_file_request(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
     rid = _env_str("STELLARBRIDGE_TEST_REQUEST_ID")
     if not rid:
-        return None, "Set STELLARBRIDGE_TEST_REQUEST_ID for this tool. Upload a file via public/upload to get a request ID."
+        return None, f"Set STELLARBRIDGE_TEST_REQUEST_ID for this tool. {_REQUEST_ID_HINT}"
     return {"request_id": rid}, ""
 
 

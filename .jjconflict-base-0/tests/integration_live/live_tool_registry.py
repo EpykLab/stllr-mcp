@@ -460,7 +460,7 @@ def _requests_create_file_request(_repo_root: Path) -> tuple[dict[str, Any] | No
 def _requests_get_file_request(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
     rid = _env_str("STELLARBRIDGE_TEST_REQUEST_ID")
     if not rid:
-        return None, "Set STELLARBRIDGE_TEST_REQUEST_ID for this tool. Upload a file via public/upload to get a request ID."
+        return None, "Set STELLARBRIDGE_TEST_REQUEST_ID for this tool."
     return {"request_id": rid}, ""
 
 

@@ -6,10 +6,6 @@ Each tool maps to env-driven arguments. ``resolve`` returns ``(args, skip_reason
 Mutation-prone tools require ``STELLARBRIDGE_LIVE_ALLOW_MUTATIONS=1`` in addition to
 any resource IDs. Destructive calls use IDs from the environment only; the operator
 is responsible for pointing them at disposable resources.
-
-When a **transfer id** (``tid``) is required and not in env: call MCP tool
-``transfers_list_transfers`` first; each row includes ``tid``. Do not use raw HTTP
-to list transfers for that purpose. See README "Transfer ids" and ``tests/README.md``.
 """
 
 from __future__ import annotations
@@ -30,13 +26,6 @@ _MULTIPART_FIXTURE_RELATIVE: Final = Path("tests/fixtures/uploads/multipart_uplo
 
 def _truthy_env(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
-
-
-# Shown when live tests skip for missing STELLARBRIDGE_TEST_TRANSFER_ID (etc.).
-_TRANSFER_TID_HINT = (
-    "Call MCP tool transfers_list_transfers and use a row's tid, or "
-    "`task live-first-transfer-id` / tests/README.md."
-)
 
 
 def _env_str(name: str) -> str | None:
@@ -186,29 +175,6 @@ def _drive_get_drive_upload_url(_repo_root: Path) -> tuple[dict[str, Any] | None
     return {"object_id": oid}, ""
 
 
-def _drive_upload_drive_file_from_path(repo_root: Path) -> tuple[dict[str, Any] | None, str]:
-    r = _require_mutation_allow()
-    if r is not None:
-        return None, r
-    oid = _env_int("STELLARBRIDGE_TEST_FILE_PLACEHOLDER_OBJECT_ID")
-    if oid is None:
-        oid = _env_int("STELLARBRIDGE_TEST_OBJECT_ID")
-    if oid is None:
-        return (
-            None,
-            "Set STELLARBRIDGE_TEST_FILE_PLACEHOLDER_OBJECT_ID or "
-            "STELLARBRIDGE_TEST_OBJECT_ID (file placeholder).",
-        )
-    fixture = (repo_root / _MULTIPART_FIXTURE_RELATIVE).resolve()
-    if not fixture.is_file():
-        return None, f"missing committed fixture: {fixture}"
-    return {
-        "object_id": oid,
-        "file_path": str(fixture),
-        "content_type": "application/octet-stream",
-    }, ""
-
-
 def _drive_complete_drive_upload(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
     r = _require_mutation_allow()
     if r is not None:
@@ -217,27 +183,8 @@ def _drive_complete_drive_upload(_repo_root: Path) -> tuple[dict[str, Any] | Non
     if oid is None:
         oid = _env_int("STELLARBRIDGE_TEST_OBJECT_ID")
     if oid is None:
-        return (
-            None,
-            "Set STELLARBRIDGE_TEST_FILE_PLACEHOLDER_OBJECT_ID or "
-            "STELLARBRIDGE_TEST_OBJECT_ID for this tool.",
-        )
-    bucket = _env_str("STELLARBRIDGE_TEST_UPLOAD_BUCKET")
-    etag = _env_str("STELLARBRIDGE_TEST_UPLOAD_ETAG")
-    size = _env_int("STELLARBRIDGE_TEST_UPLOAD_SIZE_BYTES")
-    if not bucket or not etag or size is None or size <= 0:
-        return (
-            None,
-            "After PUT to the presigned URL, set STELLARBRIDGE_TEST_UPLOAD_BUCKET, "
-            "STELLARBRIDGE_TEST_UPLOAD_ETAG (strip surrounding quotes), and "
-            "STELLARBRIDGE_TEST_UPLOAD_SIZE_BYTES for complete_drive_upload.",
-        )
-    return {
-        "object_id": oid,
-        "bucket": bucket,
-        "etag": etag,
-        "size_bytes": size,
-    }, ""
+        return None, "Set STELLARBRIDGE_TEST_FILE_PLACEHOLDER_OBJECT_ID for this tool."
+    return {"object_id": oid}, ""
 
 
 def _drive_get_drive_download_url(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
@@ -304,10 +251,7 @@ def _transfers_list_transfers(_repo_root: Path) -> tuple[dict[str, Any] | None, 
 def _transfers_get_transfer(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
     tid = _env_str("STELLARBRIDGE_TEST_TRANSFER_ID")
     if not tid:
-        return (
-            None,
-            f"Set STELLARBRIDGE_TEST_TRANSFER_ID (uuid). {_TRANSFER_TID_HINT}",
-        )
+        return None, "Set STELLARBRIDGE_TEST_TRANSFER_ID for this tool."
     return {"transfer_id": tid}, ""
 
 
@@ -331,11 +275,7 @@ def _transfers_share_transfer(_repo_root: Path) -> tuple[dict[str, Any] | None, 
     tid = _env_str("STELLARBRIDGE_TEST_TRANSFER_ID")
     email = _env_str("STELLARBRIDGE_TEST_RECIPIENT_EMAIL")
     if not tid or not email:
-        return (
-            None,
-            "Set STELLARBRIDGE_TEST_TRANSFER_ID and STELLARBRIDGE_TEST_RECIPIENT_EMAIL. "
-            f"If tid is unknown: {_TRANSFER_TID_HINT}",
-        )
+        return None, "Set STELLARBRIDGE_TEST_TRANSFER_ID and STELLARBRIDGE_TEST_RECIPIENT_EMAIL."
     return {"transfer_id": tid, "recipient_email": email}, ""
 
 
@@ -346,11 +286,7 @@ def _transfers_add_transfer_to_drive(_repo_root: Path) -> tuple[dict[str, Any] |
     tid = _env_str("STELLARBRIDGE_TEST_TRANSFER_ID")
     pid = _env_int("STELLARBRIDGE_TEST_PROJECT_ID")
     if not tid or pid is None:
-        return (
-            None,
-            "Set STELLARBRIDGE_TEST_TRANSFER_ID and STELLARBRIDGE_TEST_PROJECT_ID. "
-            f"If tid is unknown: {_TRANSFER_TID_HINT}",
-        )
+        return None, "Set STELLARBRIDGE_TEST_TRANSFER_ID and STELLARBRIDGE_TEST_PROJECT_ID."
     return {"transfer_id": tid, "project_id": pid}, ""
 
 
@@ -361,8 +297,7 @@ def _transfers_get_transfer_public_info(_repo_root: Path) -> tuple[dict[str, Any
     if not tid:
         return (
             None,
-            "Set STELLARBRIDGE_TEST_PUBLIC_TRANSFER_ID or STELLARBRIDGE_TEST_TRANSFER_ID. "
-            f"If tid is unknown: {_TRANSFER_TID_HINT}",
+            "Set STELLARBRIDGE_TEST_PUBLIC_TRANSFER_ID or STELLARBRIDGE_TEST_TRANSFER_ID.",
         )
     return {"transfer_id": tid}, ""
 
@@ -460,7 +395,7 @@ def _requests_create_file_request(_repo_root: Path) -> tuple[dict[str, Any] | No
 def _requests_get_file_request(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
     rid = _env_str("STELLARBRIDGE_TEST_REQUEST_ID")
     if not rid:
-        return None, "Set STELLARBRIDGE_TEST_REQUEST_ID for this tool. Upload a file via public/upload to get a request ID."
+        return None, "Set STELLARBRIDGE_TEST_REQUEST_ID for this tool."
     return {"request_id": rid}, ""
 
 
@@ -524,7 +459,6 @@ _LIVE_TOOL_SPECS_RAW: tuple[LiveToolSpec, ...] = (
     LiveToolSpec("drive_move_drive_object", _drive_move_drive_object),
     LiveToolSpec("drive_rename_drive_object", _drive_rename_drive_object),
     LiveToolSpec("drive_share_drive_object", _drive_share_drive_object),
-    LiveToolSpec("drive_upload_drive_file_from_path", _drive_upload_drive_file_from_path),
     LiveToolSpec("projects_create_project", _projects_create_project),
     LiveToolSpec("projects_delete_project", _projects_delete_project),
     LiveToolSpec("projects_list_projects", _projects_list_projects),
