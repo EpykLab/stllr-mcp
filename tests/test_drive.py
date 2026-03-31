@@ -110,9 +110,14 @@ class TestRenameAndMoveDriveObject:
 
 class TestDeleteDriveObject:
     def test_deletes_object(self, mock_client):
-        mock_client.delete_object.return_value = None
-        delete_drive_object(object_id=5)
+        mock_client.delete_object.return_value = {
+            "id": 5,
+            "name": "x",
+            "type": "FOLDER",
+        }
+        result = delete_drive_object(object_id=5)
         mock_client.delete_object.assert_called_once_with(5)
+        assert result["id"] == 5
 
 
 class TestUploadDownload:
@@ -203,9 +208,9 @@ class TestPolicyAttachments:
         mock_client.list_policy_attachments.assert_called_once_with(5)
 
     def test_attach_policy(self, mock_client):
-        mock_client.attach_policy.return_value = {"id": "att-1"}
-        attach_policy_to_object(object_id=5, policy_id="pol-abc")
-        mock_client.attach_policy.assert_called_once_with(5, "pol-abc")
+        mock_client.attach_policy.return_value = {"attachmentId": 1}
+        attach_policy_to_object(object_id=5, policy_id=42)
+        mock_client.attach_policy.assert_called_once_with(5, 42)
 
     def test_detach_policy(self, mock_client):
         mock_client.detach_policy.return_value = None

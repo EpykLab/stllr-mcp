@@ -58,6 +58,20 @@ class TestBaseUrl:
         assert str(req.url) == "http://localhost:8080/api/v1/projects"
 
 
+class TestCreateProject:
+    def test_post_json_uses_partner_ids(self, httpx_mock: pytest_httpx.HTTPXMock):
+        """POST /projects body must use partner_ids (snake_case) per API contract."""
+        httpx_mock.add_response(
+            method="POST",
+            url="http://localhost:8080/api/v1/projects",
+            json={"data": {"id": 1, "name": "P"}, "error": None},
+        )
+        client = StellarBridgeClient()
+        client.create_project("My Project", [1, 2])
+        req = httpx_mock.get_requests()[0]
+        assert json.loads(req.content) == {"name": "My Project", "partner_ids": [1, 2]}
+
+
 class TestListObjects:
     def test_without_parent(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
@@ -93,7 +107,7 @@ class TestRequestBehavior:
         with pytest.raises(httpx.HTTPStatusError):
             client.get_object(999)
 
-    def test_returns_none_for_empty_response(self, httpx_mock: pytest_httpx.HTTPXMock):
+    def test_returns_none_for_empty_delete_response(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
             method="DELETE",
             url="http://localhost:8080/api/v1/objects/1",
@@ -102,6 +116,23 @@ class TestRequestBehavior:
         )
         client = StellarBridgeClient()
         assert client.delete_object(1) is None
+
+    def test_delete_object_unwraps_api_envelope(self, httpx_mock: pytest_httpx.HTTPXMock):
+        httpx_mock.add_response(
+            method="DELETE",
+            url="http://localhost:8080/api/v1/objects/1",
+            status_code=200,
+            json={
+                "data": {"id": 1, "name": "a.txt", "type": "FILE"},
+                "error": None,
+            },
+        )
+        client = StellarBridgeClient()
+        assert client.delete_object(1) == {
+            "id": 1,
+            "name": "a.txt",
+            "type": "FILE",
+        }
 
 
 class TestPolicyAttachments:
@@ -112,11 +143,11 @@ class TestPolicyAttachments:
             json={"data": {"attachment": {"id": 1}}, "error": None},
         )
         client = StellarBridgeClient()
-        client.attach_policy(12, "5")
+        client.attach_policy(12, 5)
 
         req = httpx_mock.get_requests()[0]
         body = json.loads(req.content.decode("utf-8"))
-        assert body == {"policy_id": "5"}
+        assert body == {"policy_id": 5, "priority": 0}
 
 
 class TestUploadComplete:
@@ -134,22 +165,38 @@ class TestUploadComplete:
         assert body == {"bucket": "b", "etag": "e", "size_bytes": 3}
 
 
-class TestGetTransferPublicInfo:
-    """Public info endpoint uses unauthenticated GET."""
+class TestGetAuditLogs:
+    def test_empty_body_returns_empty_list(self, httpx_mock: pytest_httpx.HTTPXMock):
+        """GET /logs must deserialize to a JSON array; empty HTTP body becomes []."""
+        httpx_mock.add_response(
+            method="GET",
+            url="http://localhost:8080/api/v1/logs?fileName=no-such-file.txt",
+            status_code=200,
+            content=b"",
+        )
+        client = StellarBridgeClient()
+        assert client.get_audit_logs(fileName="no-such-file.txt") == []
 
-    def test_returns_public_info_without_auth(self, httpx_mock: pytest_httpx.HTTPXMock):
+
+class TestGetTransferPublicInfo:
+    """GET /public/download/info uses X-API-Key like other /api/v1 routes."""
+
+    def test_sends_x_api_key_and_unwraps_data_envelope(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
             method="GET",
             url="http://localhost:8080/api/v1/public/download/info/tid-public",
-            json={"fileName": "report.pdf", "sizeBytes": 1024},
+            json={
+                "data": {"filename": "report.pdf", "size": 1024},
+                "error": None,
+            },
         )
         client = StellarBridgeClient()
         result = client.get_transfer_public_info("tid-public")
-        assert result["fileName"] == "report.pdf"
-        assert result["sizeBytes"] == 1024
+        assert result["filename"] == "report.pdf"
+        assert result["size"] == 1024
 
         req = httpx_mock.get_requests()[0]
-        assert "X-API-Key" not in req.headers
+        assert req.headers.get("X-API-Key") == "test-api-key"
 
 
 class TestMultipartTransferRoutes:

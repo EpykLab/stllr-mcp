@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # Env: STELLARBRIDGE_API_URL
     api_url: str = "http://localhost:8080"
 
-    # API key sent as X-API-Key on every request to Stellarbridge
+    # API key sent as X-API-Key on every request (not Authorization: Bearer)
     # Env: STELLARBRIDGE_API_KEY
     api_key: str = ""
 

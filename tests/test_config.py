@@ -1,8 +1,19 @@
 """Tests for Stellarbridge MCP configuration."""
 
 import pytest
+from pydantic_settings import SettingsConfigDict
 
 from stellarbridge_mcp.config import Settings
+
+
+class SettingsWithoutEnvFile(Settings):
+    """Same fields as Settings but do not load ``.env`` (repo may set API URL for dev)."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="STELLARBRIDGE_",
+        env_file=None,
+        extra="ignore",
+    )
 
 
 class TestSettings:
@@ -12,7 +23,7 @@ class TestSettings:
         monkeypatch.delenv("STELLARBRIDGE_API_KEY", raising=False)
         monkeypatch.delenv("STELLARBRIDGE_JWT_TOKEN", raising=False)
         monkeypatch.delenv("STELLARBRIDGE_HTTP_TIMEOUT", raising=False)
-        s = Settings()
+        s = SettingsWithoutEnvFile()
         assert s.api_url == "http://localhost:8080"
         assert s.api_key == ""
         assert s.jwt_token == ""
