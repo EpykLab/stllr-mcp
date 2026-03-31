@@ -126,21 +126,6 @@ class StellarBridgeClient:
     def list_policy_attachments(self, object_id: int) -> Any:
         return self._request("GET", f"/objects/{object_id}/policy-attachments")
 
-    def attach_policy(self, object_id: int, policy_id: int) -> Any:
-        raw = self._request(
-            "POST",
-            f"/objects/{object_id}/policy-attachments",
-            json={"policy_id": policy_id, "priority": 0},
-        )
-        if isinstance(raw, dict) and isinstance(raw.get("data"), dict):
-            att = raw["data"].get("attachment")
-            if isinstance(att, dict) and "id" in att:
-                return {"attachmentId": att["id"]}
-        return raw
-
-    def detach_policy(self, object_id: int, attachment_id: str) -> Any:
-        return self._request("DELETE", f"/objects/{object_id}/policy-attachments/{attachment_id}")
-
     # ------------------------------------------------------------------
     # Projects
     # ------------------------------------------------------------------

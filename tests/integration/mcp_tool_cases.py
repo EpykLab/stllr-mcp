@@ -28,8 +28,6 @@ EXPECTED_MCP_TOOL_NAMES: frozenset[str] = frozenset(
         "drive_get_drive_download_url",
         "drive_share_drive_object",
         "drive_list_object_policy_attachments",
-        "drive_attach_policy_to_object",
-        "drive_detach_policy_from_object",
         # transfers (upload_transfer_multipart_file: dedicated multipart test)
         "transfers_list_transfers",
         "transfers_get_transfer",
@@ -193,22 +191,6 @@ TOOL_HTTP_CASES: tuple[ToolHttpCase, ...] = (
         None,
         200, [{"policyId": "p1"}],
         [{"policyId": "p1"}],
-    ),
-    ToolHttpCase(
-        "drive_attach_policy_to_object",
-        {"object_id": 16, "policy_id": 9},
-        "POST", "/api/v1/objects/16/policy-attachments",
-        None,
-        200, {"attachmentId": "att-1"},
-        {"attachmentId": "att-1"},
-    ),
-    ToolHttpCase(
-        "drive_detach_policy_from_object",
-        {"object_id": 17, "attachment_id": "att-2"},
-        "DELETE", "/api/v1/objects/17/policy-attachments/att-2",
-        None,
-        204, None,
-        None,
     ),
     ToolHttpCase(
         "transfers_list_transfers",

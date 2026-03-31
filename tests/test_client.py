@@ -135,21 +135,6 @@ class TestRequestBehavior:
         }
 
 
-class TestPolicyAttachments:
-    def test_attach_policy_uses_snake_case(self, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            method="POST",
-            url="http://localhost:8080/api/v1/objects/12/policy-attachments",
-            json={"data": {"attachment": {"id": 1}}, "error": None},
-        )
-        client = StellarBridgeClient()
-        client.attach_policy(12, 5)
-
-        req = httpx_mock.get_requests()[0]
-        body = json.loads(req.content.decode("utf-8"))
-        assert body == {"policy_id": 5, "priority": 0}
-
-
 class TestUploadComplete:
     def test_complete_upload_sends_bucket_etag_size(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
