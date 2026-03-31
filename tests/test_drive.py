@@ -110,9 +110,14 @@ class TestRenameAndMoveDriveObject:
 
 class TestDeleteDriveObject:
     def test_deletes_object(self, mock_client):
-        mock_client.delete_object.return_value = None
-        delete_drive_object(object_id=5)
+        mock_client.delete_object.return_value = {
+            "id": 5,
+            "name": "x",
+            "type": "FOLDER",
+        }
+        result = delete_drive_object(object_id=5)
         mock_client.delete_object.assert_called_once_with(5)
+        assert result["id"] == 5
 
 
 class TestUploadDownload:

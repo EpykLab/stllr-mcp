@@ -98,7 +98,8 @@ class StellarBridgeClient:
         return self._request("PATCH", f"/objects/{object_id}", json=payload)
 
     def delete_object(self, object_id: int) -> Any:
-        return self._request("DELETE", f"/objects/{object_id}")
+        raw = self._request("DELETE", f"/objects/{object_id}")
+        return _unwrap_api_response_data(raw)
 
     def get_upload_url(self, object_id: int) -> Any:
         return self._request("GET", f"/objects/{object_id}/upload-url")
@@ -155,7 +156,8 @@ class StellarBridgeClient:
         return self._request("POST", "/projects", json={"name": name, "partner_ids": partner_ids})
 
     def delete_project(self, project_id: int) -> Any:
-        return self._request("DELETE", f"/projects/{project_id}")
+        raw = self._request("DELETE", f"/projects/{project_id}")
+        return _unwrap_api_response_data(raw)
 
     # ------------------------------------------------------------------
     # Transfers (bridge)
