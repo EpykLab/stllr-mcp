@@ -18,8 +18,6 @@ from stellarbridge_mcp.tools.drive import (
     get_drive_download_url,
     share_drive_object,
     list_object_policy_attachments,
-    attach_policy_to_object,
-    detach_policy_from_object,
 )
 
 
@@ -201,13 +199,3 @@ class TestPolicyAttachments:
         mock_client.list_policy_attachments.return_value = []
         list_object_policy_attachments(object_id=5)
         mock_client.list_policy_attachments.assert_called_once_with(5)
-
-    def test_attach_policy(self, mock_client):
-        mock_client.attach_policy.return_value = {"attachmentId": 1}
-        attach_policy_to_object(object_id=5, policy_id=42)
-        mock_client.attach_policy.assert_called_once_with(5, 42)
-
-    def test_detach_policy(self, mock_client):
-        mock_client.detach_policy.return_value = None
-        detach_policy_from_object(object_id=5, attachment_id="att-1")
-        mock_client.detach_policy.assert_called_once_with(5, "att-1")
