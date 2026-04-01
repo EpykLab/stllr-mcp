@@ -1,0 +1,368 @@
+{
+  "schema_version": 1,
+  "agents": {
+    "default": "opencode",
+    "opencode": {
+      "type": "opencode",
+      "argv": [
+        "opencode",
+        "run",
+        "--format",
+        "json",
+        "--model",
+        "openai/gpt-5.2",
+        "--variant",
+        "high"
+      ],
+      "timeout_seconds": 180
+    }
+  },
+  "planner_constraints": {
+    "max_tool_calls": 3,
+    "forbid_tool_execution": true,
+    "require_strict_json_output": true
+  },
+  "workflows": [
+    {
+      "id": "1",
+      "name": "Find and Select a Project",
+      "description": "Discover which projects exist and pick the correct one for a task.",
+      "success_criteria": [
+        "Plan uses at most 3 tool calls.",
+        "If project name is ambiguous, ask a clarifying question.",
+        "Planned tool names exist in MCP tools/list."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "What Stellarbridge projects do I have access to?" },
+        { "id": "b", "prompt": "Show me all available Drive projects and their ids." },
+        { "id": "c", "prompt": "List my projects so I can pick the right one." }
+      ]
+    },
+    {
+      "id": "2",
+      "name": "Browse Project Root",
+      "description": "List the top-level files and folders in a project.",
+      "success_criteria": [
+        "Ask for project_id if not provided.",
+        "Plan includes a Drive listing call for project root.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "List the files and folders at the root of my Contracts project." },
+        { "id": "b", "prompt": "Show me what's in the root of project_id 1." },
+        { "id": "c", "prompt": "Open the Stellarbridge Drive project root (not the local repo) and show me its contents." }
+      ]
+    },
+    {
+      "id": "3",
+      "name": "Browse a Folder",
+      "description": "List the contents of a specific Drive folder.",
+      "success_criteria": [
+        "Ask for folder object_id (and project_id if needed).",
+        "Plan includes a folder listing using parent_id.",
+        "Plan stays within 3 tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Show me what's inside folder object_id 28 in my Drive." },
+        { "id": "b", "prompt": "List the contents of my Invoices folder (I have the folder id)." },
+        { "id": "c", "prompt": "List the children of this folder id and label which are files vs folders." }
+      ]
+    },
+    {
+      "id": "4",
+      "name": "Create a Folder",
+      "description": "Create a new folder in a project root or inside another folder.",
+      "success_criteria": [
+        "Ask for project_id and folder name.",
+        "If parent folder is unknown, ask where to create it.",
+        "Plan uses at most one folder creation call (or ask what to create first)."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Create a folder called 'Invoices' in the root of project_id 1." },
+        { "id": "b", "prompt": "Make a new folder named '2026-04' under my Invoices folder." },
+        { "id": "c", "prompt": "Add a folder for monthly invoices in the right Drive location." }
+      ]
+    },
+    {
+      "id": "5",
+      "name": "Upload a File to Drive",
+      "description": "Plan the steps to upload a local file into a Drive folder.",
+      "success_criteria": [
+        "Ask for local file path and target project/folder.",
+        "Plan includes creating a file placeholder and uploading bytes (or a single upload-by-path tool if available).",
+        "Do not execute tool calls; return plan only."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Upload /path/to/invoice.pdf into my Invoices folder in the Invoices project." },
+        { "id": "b", "prompt": "I have a PDF on disk. Plan how to upload it into a specific Drive folder." },
+        { "id": "c", "prompt": "Put this invoice PDF into the correct project and month folder." }
+      ]
+    },
+    {
+      "id": "6",
+      "name": "Download a File from Drive",
+      "description": "Plan how to obtain a download URL for a Drive file and download it.",
+      "success_criteria": [
+        "Ask for the file object_id (or how to locate it).",
+        "Plan includes requesting a download URL.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Get me a download link for Drive file object_id 88." },
+        { "id": "b", "prompt": "I need to download a file from Drive. I have the object id." },
+        { "id": "c", "prompt": "Generate a URL I can use to download the file from Stellarbridge Drive." }
+      ]
+    },
+    {
+      "id": "7",
+      "name": "Share a Drive File by Email",
+      "description": "Plan how to share a Drive file with an external recipient by email.",
+      "success_criteria": [
+        "Ask for object_id and recipient email.",
+        "Plan includes a share action.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Share Drive file object_id 88 with alice@example.com." },
+        { "id": "b", "prompt": "I need to email a Drive share link for a specific file." },
+        { "id": "c", "prompt": "Send this Drive file to an external partner by email (planning only)." }
+      ]
+    },
+    {
+      "id": "8",
+      "name": "Rename a File or Folder",
+      "description": "Plan a rename to match a naming convention.",
+      "success_criteria": [
+        "Ask for object_id and new_name.",
+        "Optionally fetch metadata first if needed to confirm the target.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Rename Drive object_id 35 to 'invoice-2026-04-acme.pdf'." },
+        { "id": "b", "prompt": "I need to rename a file in Drive. I know the object id and the new name." },
+        { "id": "c", "prompt": "Update the name of this Drive item to match our compliance naming rules." }
+      ]
+    },
+    {
+      "id": "9",
+      "name": "Move a File or Folder",
+      "description": "Plan how to move a Drive object to a different folder or to project root.",
+      "success_criteria": [
+        "Ask for object_id and destination folder id (or confirm moving to root).",
+        "Plan includes a move action.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Move Drive object_id 35 into folder object_id 28." },
+        { "id": "b", "prompt": "Move this Drive item back to the project root." },
+        { "id": "c", "prompt": "Reorganize Drive by moving a file into a different folder (planning only)." }
+      ]
+    },
+    {
+      "id": "10",
+      "name": "Delete a File or Folder",
+      "description": "Plan how to delete a Drive object.",
+      "success_criteria": [
+        "Ask for object_id and confirm deletion intent.",
+        "Plan includes a delete action.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Delete Drive object_id 99 (I confirm it is disposable)." },
+        { "id": "b", "prompt": "Remove this file from Drive. I have the object id." },
+        { "id": "c", "prompt": "Delete an unnecessary folder from the project (planning only)." }
+      ]
+    },
+    {
+      "id": "11",
+      "name": "Inspect a Drive Object",
+      "description": "Fetch metadata for a Drive object to confirm name/type/parent.",
+      "success_criteria": [
+        "Ask for object_id.",
+        "Plan includes a get-metadata call.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Get metadata for Drive object_id 28." },
+        { "id": "b", "prompt": "Tell me what this Drive object is (file vs folder) and its name." },
+        { "id": "c", "prompt": "I have an object id; I need details about it." }
+      ]
+    },
+    {
+      "id": "12",
+      "name": "Review Policy Attachments",
+      "description": "List the access policy attachments on a Drive file/folder.",
+      "success_criteria": [
+        "Ask for object_id.",
+        "Plan includes listing policy attachments.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "List policy attachments for Drive object_id 28." },
+        { "id": "b", "prompt": "What access policies are attached to this folder?" },
+        { "id": "c", "prompt": "Show me the policy attachments on a specific Drive object." }
+      ]
+    },
+    {
+      "id": "13",
+      "name": "Attach a Policy to an Object",
+      "description": "Plan how to attach an access policy to a Drive object.",
+      "success_criteria": [
+        "Ask for object_id and policy_id.",
+        "Plan includes a policy attach action.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Attach policy_id 9 to Drive object_id 28." },
+        { "id": "b", "prompt": "Apply an access policy to this folder so downloads are restricted (planning only)." },
+        { "id": "c", "prompt": "I want to apply a policy to a Drive item; I know the policy id and object id." }
+      ]
+    },
+    {
+      "id": "14",
+      "name": "Detach a Policy Attachment",
+      "description": "Plan how to remove a specific policy attachment from a Drive object.",
+      "success_criteria": [
+        "Ask for object_id and attachment_id.",
+        "Plan includes a detach action.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Remove policy attachment att-2 from Drive object_id 28." },
+        { "id": "b", "prompt": "Detach a policy from this Drive folder (I have the attachment id)." },
+        { "id": "c", "prompt": "Undo an access policy attachment on a Drive object (planning only)." }
+      ]
+    },
+    {
+      "id": "15",
+      "name": "List Recent Transfers",
+      "description": "Find recent transfers (uploads) and identify a transfer id for follow-up actions.",
+      "success_criteria": [
+        "Plan includes listing transfers.",
+        "If org filtering matters, ask for org id.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "List my recent transfers." },
+        { "id": "b", "prompt": "Show transfers for my organization so I can pick one." },
+        { "id": "c", "prompt": "Find the latest transfer id I can use for sharing." }
+      ]
+    },
+    {
+      "id": "16",
+      "name": "Inspect a Transfer",
+      "description": "Look up transfer metadata by transfer id.",
+      "success_criteria": [
+        "Ask for transfer_id.",
+        "Plan includes a get-transfer action.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Get details for transfer_id tid-1." },
+        { "id": "b", "prompt": "I have a transfer id; show me its size and status (planning only)." },
+        { "id": "c", "prompt": "Look up transfer metadata for a specific transfer." }
+      ]
+    },
+    {
+      "id": "17",
+      "name": "Share a Transfer by Email",
+      "description": "Plan how to share a transfer download with a recipient by email.",
+      "success_criteria": [
+        "Ask for transfer_id and recipient email.",
+        "Plan includes a transfer share action.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Email transfer tid-3 to bob@example.com." },
+        { "id": "b", "prompt": "Share a transfer download link with a recipient (planning only)." },
+        { "id": "c", "prompt": "Send this transfer to an external party by email." }
+      ]
+    },
+    {
+      "id": "18",
+      "name": "Add a Transfer into Drive",
+      "description": "Plan how to place a completed transfer into a Drive project/folder.",
+      "success_criteria": [
+        "Ask for transfer_id and destination project_id (and optional parent folder id).",
+        "Plan includes adding transfer into Drive.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Add transfer tid-4 into project_id 1 in the Drive root." },
+        { "id": "b", "prompt": "Move a completed transfer into the Contracts project folder (planning only)." },
+        { "id": "c", "prompt": "Take this transfer and place it into a Drive folder so it shows up in Drive." }
+      ]
+    },
+    {
+      "id": "19",
+      "name": "Request a File Upload from an External User",
+      "description": "Create a file upload request and send it to a recipient by email.",
+      "success_criteria": [
+        "Ask for recipient_email and request title; optional message and expiry.",
+        "Plan includes creating an upload request.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Send a file upload request to vendor@example.com for 'April invoice'." },
+        { "id": "b", "prompt": "Create an upload request link for an external contractor to submit a document." },
+        { "id": "c", "prompt": "Ask someone outside the org to upload a file to Stellarbridge (planning only)." }
+      ]
+    },
+    {
+      "id": "20",
+      "name": "Investigate Using Audit Logs",
+      "description": "Search audit logs for security/compliance reporting (time range, actor, or file).",
+      "success_criteria": [
+        "Plan includes an audit log query.",
+        "Ask for time range and filters (actor id, file name, file hash) if needed.",
+        "Do not execute tool calls."
+      ],
+      "prompt_variants": [
+        { "id": "a", "prompt": "Show me audit logs for the last 24 hours." },
+        { "id": "b", "prompt": "Find audit events for actor user@example.com (I can provide actor id if required)." },
+        { "id": "c", "prompt": "Show audit logs related to file name 'invoice.pdf' over the last week." }
+      ]
+    }
+  ],
+  "tool_prompts": [
+    { "tool_name": "projects_list_projects", "prompt": "List all projects I can access." },
+    { "tool_name": "projects_create_project", "prompt": "Create a new project named 'M&A Diligence' with partner ids 1,2." },
+    { "tool_name": "projects_delete_project", "prompt": "Delete project_id 123 (it is empty)." },
+
+    { "tool_name": "drive_list_drive_objects", "prompt": "List the Drive objects in project_id 1 (root unless a folder id is provided)." },
+    { "tool_name": "drive_get_drive_object", "prompt": "Get metadata for Drive object_id 28." },
+    { "tool_name": "drive_create_drive_folder", "prompt": "Create a folder named 'Invoices' in project_id 1 under parent folder 28." },
+    { "tool_name": "drive_create_drive_file_placeholder", "prompt": "Create a file placeholder 'invoice.pdf' (mime type application/pdf) in project_id 1 under parent folder 28." },
+    { "tool_name": "drive_rename_drive_object", "prompt": "Rename Drive object_id 35 to 'invoice-2026-04-acme.pdf'." },
+    { "tool_name": "drive_move_drive_object", "prompt": "Move Drive object_id 35 into folder object_id 28." },
+    { "tool_name": "drive_delete_drive_object", "prompt": "Delete Drive object_id 99 (disposable)." },
+    { "tool_name": "drive_get_drive_upload_url", "prompt": "Get an upload URL for file placeholder object_id 62." },
+    { "tool_name": "drive_complete_drive_upload", "prompt": "Complete the Drive upload for object_id 62 with bucket=<BUCKET>, etag=<ETAG>, and size_bytes=<SIZE_BYTES>." },
+    { "tool_name": "drive_upload_drive_file_from_path", "prompt": "Upload the local file at /path/to/file.bin to Drive file placeholder object_id 62." },
+    { "tool_name": "drive_get_drive_download_url", "prompt": "Get a download URL for Drive file object_id 88." },
+    { "tool_name": "drive_share_drive_object", "prompt": "Share Drive file object_id 88 with recipient alice@example.com." },
+    { "tool_name": "drive_list_object_policy_attachments", "prompt": "List policy attachments for Drive object_id 28." },
+    { "tool_name": "drive_attach_policy_to_object", "prompt": "Attach policy_id 9 to Drive object_id 28." },
+    { "tool_name": "drive_detach_policy_from_object", "prompt": "Detach attachment_id att-2 from Drive object_id 28." },
+
+    { "tool_name": "transfers_list_transfers", "prompt": "List transfers (optionally filtered by org_id if I provide it)." },
+    { "tool_name": "transfers_get_transfer", "prompt": "Get transfer metadata for transfer_id tid-1." },
+    { "tool_name": "transfers_delete_transfer", "prompt": "Delete transfer_id tid-2 (disposable)." },
+    { "tool_name": "transfers_share_transfer", "prompt": "Share transfer_id tid-3 with recipient bob@example.com." },
+    { "tool_name": "transfers_add_transfer_to_drive", "prompt": "Add transfer_id tid-4 into Drive project_id 1 (optionally under parent folder 28)." },
+    { "tool_name": "transfers_get_transfer_public_info", "prompt": "Get public download info for transfer_id pub-1." },
+    { "tool_name": "transfers_initialize_multipart_upload", "prompt": "Initialize a multipart upload for file 'big.bin' with size_bytes 10485760." },
+    { "tool_name": "transfers_get_multipart_presigned_urls", "prompt": "Get multipart presigned URLs for upload_id up-1 and file_key key-1 for 2 parts." },
+    { "tool_name": "transfers_finalize_multipart_upload", "prompt": "Finalize multipart upload with upload_id=<UPLOAD_ID>, file_key=<FILE_KEY>, size_bytes=<SIZE_BYTES>, and parts=<PARTS>. (parts is the list of uploaded parts, e.g. [{\"PartNumber\":1,\"ETag\":\"...\"}])" },
+    { "tool_name": "transfers_cancel_multipart_upload", "prompt": "Cancel multipart upload for upload_id up-1 and file_key key-1." },
+    { "tool_name": "transfers_upload_transfer_multipart_file", "prompt": "Upload a local file /path/to/big.bin as a new transfer via multipart upload." },
+
+    { "tool_name": "requests_create_file_request", "prompt": "Create a file upload request titled 'April invoice' for recipient vendor@example.com with an optional message." },
+    { "tool_name": "requests_get_file_request", "prompt": "Check the status/details for file request id req-1." },
+    { "tool_name": "requests_delete_file_request", "prompt": "Delete/cancel the file request id req-1." },
+
+    { "tool_name": "audit_get_audit_logs", "prompt": "Fetch audit logs for the last 24 hours (limit 50)." },
+    { "tool_name": "audit_get_audit_logs_for_actor", "prompt": "Fetch audit logs for actor_id 12345 for the last 24 hours." },
+    { "tool_name": "audit_get_audit_logs_for_file", "prompt": "Fetch audit logs related to file name 'invoice.pdf' for the last 7 days." }
+  ]
+}
