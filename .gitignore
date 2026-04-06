@@ -2,3 +2,4 @@
 .env
 test_tracking.md
 uv.lock
+tests/retest_results/
