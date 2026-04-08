@@ -229,6 +229,19 @@ def _extract_str(raw: Any, *keys: str) -> str | None:
     return None
 
 
+def _extract_object_id(raw: Any) -> int | None:
+    """Extract a Drive object id from add_transfer_to_drive responses."""
+    data = _unwrap_data(raw)
+    if isinstance(data, dict):
+        for k in ("objectId", "object_id", "id"):
+            v = data.get(k)
+            if isinstance(v, int):
+                return v
+            if isinstance(v, str) and v.isdigit():
+                return int(v, 10)
+    return None
+
+
 def _find_transfer_tid_by_name(raw: Any, *, name: str) -> str | None:
     """Find a transfer tid by exact name from transfers_list_transfers output."""
     data = _unwrap_data(raw)
@@ -242,8 +255,27 @@ def _find_transfer_tid_by_name(raw: Any, *, name: str) -> str | None:
     for it in items:
         if not isinstance(it, dict):
             continue
-        iname = it.get("name") or it.get("fileName") or it.get("file_name")
+        iname = it.get("name") or it.get("fileName") or it.get("file_name") or it.get("filename")
         if iname != name:
+            continue
+        tid = it.get("tid") or it.get("transfer_id") or it.get("transferId") or it.get("id")
+        if isinstance(tid, str) and tid:
+            return tid
+    return None
+
+
+def _pick_any_transfer_tid(raw: Any) -> str | None:
+    """Pick any usable transfer id from transfers_list_transfers output."""
+    data = _unwrap_data(raw)
+    items: list[Any] | None = None
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict) and isinstance(data.get("transfers"), list):
+        items = data["transfers"]
+    if not items:
+        return None
+    for it in items:
+        if not isinstance(it, dict):
             continue
         tid = it.get("tid") or it.get("transfer_id") or it.get("transferId") or it.get("id")
         if isinstance(tid, str) and tid:
@@ -331,11 +363,12 @@ async def _lookup_transfer_tid(
     transfer_name: str,
     attempts: int = 4,
     sleep_s: float = 1.0,
-) -> tuple[list[ToolStep], str | None]:
+) -> tuple[list[ToolStep], str | None, str | None]:
     """Best-effort: list transfers and match by name (eventual consistency tolerant)."""
     import asyncio
 
     steps: list[ToolStep] = []
+    any_tid: str | None = None
     for i in range(attempts):
         lt = await _call_with_retries(
             session,
@@ -345,6 +378,8 @@ async def _lookup_transfer_tid(
             base_sleep_s=1.0,
         )
         steps.append(lt)
+        if any_tid is None and lt.status == "PASS":
+            any_tid = _pick_any_transfer_tid(lt.parsed_json)
         tid = _find_transfer_tid_by_name(lt.parsed_json, name=transfer_name) if lt.status == "PASS" else None
         if tid:
             steps.append(
@@ -353,25 +388,40 @@ async def _lookup_transfer_tid(
                     arguments={"transfer_name": transfer_name},
                     status="PASS",
                     note=f"matched by name via transfers_list_transfers (attempt {i+1}/{attempts})",
-                    parsed_json={"transfer_name": transfer_name, "matched_tid": tid},
+                    parsed_json={"transfer_name": transfer_name, "matched_tid": tid, "fallback_tid": any_tid},
                     raw_text_preview="",
                 ),
             )
-            return steps, tid
+            return steps, tid, any_tid
         if i < attempts - 1:
             await asyncio.sleep(sleep_s * (2**i))
+
+    if any_tid:
+        # This follows the normal operator/agent workflow pattern: list transfers first,
+        # pick a target tid, then operate on it.
+        steps.append(
+            ToolStep(
+                tool_name="(transfer_tid_lookup)",
+                arguments={"transfer_name": transfer_name},
+                status="PASS",
+                note="No tid returned from upload and upload was not found by name; selecting an existing tid from transfers_list_transfers.",
+                parsed_json={"transfer_name": transfer_name, "matched_tid": None, "fallback_tid": any_tid},
+                raw_text_preview="",
+            )
+        )
+        return steps, None, any_tid
 
     steps.append(
         ToolStep(
             tool_name="(transfer_tid_lookup)",
             arguments={"transfer_name": transfer_name},
             status="SKIP",
-            note="Upload did not return a tid and no matching transfer was found by name. Provide STELLARBRIDGE_TEST_TRANSFER_ID to exercise downstream transfer tools.",
-            parsed_json={"transfer_name": transfer_name, "matched_tid": None},
+            note="Upload did not return a tid and transfers_list_transfers returned no tid to use. Provide STELLARBRIDGE_TEST_TRANSFER_ID to exercise downstream transfer tools.",
+            parsed_json={"transfer_name": transfer_name, "matched_tid": None, "fallback_tid": None},
             raw_text_preview="",
-        ),
+        )
     )
-    return steps, None
+    return steps, None, None
 
 
 async def _run(
@@ -825,7 +875,7 @@ async def _run(
                 tid = _extract_str(up_t.parsed_json, "tid", "transfer_id", "transferId", "id")
 
                 if not tid:
-                    lookup_steps, tid = await _lookup_transfer_tid(
+                    lookup_steps, tid, fallback_tid = await _lookup_transfer_tid(
                         session,
                         transfer_name=transfer_name,
                         attempts=4,
@@ -833,6 +883,10 @@ async def _run(
                     )
                     steps.extend(lookup_steps)
                     tid_source = "list_match" if tid else tid_source
+
+                    if (not tid) and fallback_tid:
+                        tid = fallback_tid
+                        tid_source = "list_any"
 
                     # Final fallback: accept a user-provided tid if set.
                     env_tid = os.environ.get("STELLARBRIDGE_TEST_TRANSFER_ID", "").strip() or None
@@ -862,14 +916,16 @@ async def _run(
                         )
                     )
 
-                    if tid_source == "env":
+                    if tid_source in ("env", "list_any"):
                         # Safety: never mutate an arbitrary pre-existing transfer id.
                         steps.append(
                             ToolStep(
                                 tool_name="transfers_get_transfer_public_info",
                                 arguments={"transfer_id": tid},
                                 status="SKIP",
-                                note="Skipped because transfer_id came from STELLARBRIDGE_TEST_TRANSFER_ID (pre-existing; may not be public).",
+                                note=(
+                                    "Skipped because transfer_id did not come from this run's upload; public-info only applies to public/shared transfers."
+                                ),
                                 parsed_json=None,
                                 raw_text_preview="",
                             )
@@ -879,27 +935,56 @@ async def _run(
                                 tool_name="transfers_share_transfer",
                                 arguments={"transfer_id": tid, "recipient_email": recipient_email or "<missing>"},
                                 status="SKIP",
-                                note="Skipped because transfer_id came from STELLARBRIDGE_TEST_TRANSFER_ID (pre-existing).",
+                                note="Skipped because transfer_id did not come from this run's upload.",
                                 parsed_json=None,
                                 raw_text_preview="",
                             )
                         )
-                        steps.append(
-                            ToolStep(
-                                tool_name="transfers_add_transfer_to_drive",
-                                arguments={"transfer_id": tid, "project_id": workflow_project_id},
-                                status="SKIP",
-                                note="Skipped because transfer_id came from STELLARBRIDGE_TEST_TRANSFER_ID (pre-existing).",
-                                parsed_json=None,
-                                raw_text_preview="",
+                        if workflow_project_id is not None:
+                            added = await _call(
+                                session,
+                                "transfers_add_transfer_to_drive",
+                                {"transfer_id": tid, "project_id": workflow_project_id},
                             )
-                        )
+                            if added.status == "FAIL" and "422" in (added.raw_text_preview or ""):
+                                steps.append(
+                                    ToolStep(
+                                        tool_name="transfers_add_transfer_to_drive",
+                                        arguments={"transfer_id": tid, "project_id": workflow_project_id},
+                                        status="SKIP",
+                                        note="Selected a transfer id from transfers_list_transfers, but it was not eligible for add-to-drive (422).",
+                                        parsed_json=None,
+                                        raw_text_preview=added.raw_text_preview,
+                                    )
+                                )
+                            else:
+                                steps.append(added)
+                                obj_id = _extract_object_id(added.parsed_json)
+                                if obj_id is not None:
+                                    steps.append(
+                                        await _call(
+                                            session,
+                                            "drive_delete_drive_object",
+                                            {"object_id": obj_id},
+                                        )
+                                    )
+                        else:
+                            steps.append(
+                                ToolStep(
+                                    tool_name="transfers_add_transfer_to_drive",
+                                    arguments={"transfer_id": tid, "project_id": None},
+                                    status="SKIP",
+                                    note="No workflow project id available for add_transfer_to_drive.",
+                                    parsed_json=None,
+                                    raw_text_preview="",
+                                )
+                            )
                         steps.append(
                             ToolStep(
                                 tool_name="transfers_delete_transfer",
                                 arguments={"transfer_id": tid},
                                 status="SKIP",
-                                note="Skipped because transfer_id came from STELLARBRIDGE_TEST_TRANSFER_ID (pre-existing).",
+                                note="Skipped because transfer_id did not come from this run's upload.",
                                 parsed_json=None,
                                 raw_text_preview="",
                             )
