@@ -27,7 +27,10 @@ def get_audit_logs(
     end_time: Annotated[
         str | None, "End of time range in ISO 8601 format, e.g. 2025-12-31T23:59:59Z"
     ] = None,
-    actor: Annotated[str | None, "Filter by actor user ID who performed the action"] = None,
+    actor: Annotated[
+        str | None,
+        "Filter by actor (UPN/email or user/identity id) who performed the action",
+    ] = None,
     file_name: Annotated[
         str | None,
         "Filter by file label: matches sender attachment name or target name (e.g. VFS object)",
@@ -80,7 +83,10 @@ def get_audit_logs(
 
 @mcp.tool()
 def get_audit_logs_for_actor(
-    actor_id: Annotated[str, "User ID or identity ID of the actor to look up"],
+    actor_id: Annotated[
+        str,
+        "Actor to look up (UPN/email or user/identity id)",
+    ],
     start_time: Annotated[
         str | None, "Start of time range in ISO 8601 format"
     ] = None,

@@ -609,21 +609,26 @@ async def _run(
             steps.append(
                 await _call(session, "audit_get_audit_logs_for_file", {"file_name": "mcp-live-workflow"})
             )
-            if os.environ.get("STELLARBRIDGE_TEST_ACTOR_ID"):
+            actor_upn = os.environ.get("STELLARBRIDGE_TEST_ACTOR_ID", "").strip() or None
+            # The audit endpoint supports actor as a UPN/email in practice.
+            if not actor_upn and recipient_email:
+                actor_upn = recipient_email
+
+            if actor_upn:
                 steps.append(
                     await _call(
                         session,
                         "audit_get_audit_logs_for_actor",
-                        {"actor_id": os.environ["STELLARBRIDGE_TEST_ACTOR_ID"]},
+                        {"actor_id": actor_upn},
                     )
                 )
             else:
                 steps.append(
                     ToolStep(
                         tool_name="audit_get_audit_logs_for_actor",
-                        arguments={"actor_id": "<missing STELLARBRIDGE_TEST_ACTOR_ID>"},
+                        arguments={"actor_id": "<missing STELLARBRIDGE_TEST_ACTOR_ID or recipient email>"},
                         status="SKIP",
-                        note="Set STELLARBRIDGE_TEST_ACTOR_ID to exercise this tool.",
+                        note="Set STELLARBRIDGE_TEST_ACTOR_ID (actor UPN/email) to exercise this tool.",
                         parsed_json=None,
                         raw_text_preview="",
                     )
