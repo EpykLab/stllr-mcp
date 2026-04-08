@@ -214,56 +214,6 @@ def _extract_str(raw: Any, *keys: str) -> str | None:
     return None
 
 
-def _extract_attachment_id(raw: Any) -> str | None:
-    """Extract attachment id from drive_attach_policy_to_object responses."""
-    data = _unwrap_data(raw)
-    if isinstance(data, dict):
-        v = data.get("attachmentId") or data.get("attachment_id")
-        if isinstance(v, (str, int)) and str(v):
-            return str(v)
-        att = data.get("attachment")
-        if isinstance(att, dict):
-            v2 = att.get("id")
-            if isinstance(v2, (str, int)) and str(v2):
-                return str(v2)
-    return None
-
-
-def _find_attachment_id_for_policy(raw: Any, *, policy_id: int) -> str | None:
-    """Find attachment id for policy_id from list_object_policy_attachments output."""
-    data = _unwrap_data(raw)
-    items: list[Any] | None = None
-    if isinstance(data, list):
-        items = data
-    elif isinstance(data, dict):
-        if isinstance(data.get("attachments"), list):
-            items = data["attachments"]
-        elif isinstance(data.get("policy_attachments"), list):
-            items = data["policy_attachments"]
-        elif isinstance(data.get("items"), list):
-            items = data["items"]
-    if not items:
-        return None
-
-    def _as_int(v: Any) -> int | None:
-        if isinstance(v, int):
-            return v
-        if isinstance(v, str) and v.isdigit():
-            return int(v, 10)
-        return None
-
-    for it in items:
-        if not isinstance(it, dict):
-            continue
-        pid = _as_int(it.get("policy_id") or it.get("policyId") or it.get("policy"))
-        if pid != policy_id:
-            continue
-        att_id = it.get("id") or it.get("attachment_id") or it.get("attachmentId")
-        if isinstance(att_id, (str, int)) and str(att_id):
-            return str(att_id)
-    return None
-
-
 def _find_transfer_tid_by_name(raw: Any, *, name: str) -> str | None:
     """Find a transfer tid by exact name from transfers_list_transfers output."""
     data = _unwrap_data(raw)
@@ -587,85 +537,26 @@ async def _run(
 
             steps.append(await _call(session, "drive_list_object_policy_attachments", {"object_id": placeholder_id}))
 
-            # Optional policy attach/detach (often blocked for ApiAgent keys)
-            policy_id = os.environ.get("STELLARBRIDGE_TEST_POLICY_ID", "").strip()
-            if policy_id.isdigit():
-                policy_id_int = int(policy_id, 10)
-                attach = await _call(
-                    session,
-                    "drive_attach_policy_to_object",
-                    {"object_id": placeholder_id, "policy_id": policy_id_int},
-                )
-                steps.append(attach)
-
-                created_attachment_id = _extract_attachment_id(attach.parsed_json)
-                if created_attachment_id:
-                    steps.append(
-                        await _call(
-                            session,
-                            "drive_detach_policy_from_object",
-                            {"object_id": placeholder_id, "attachment_id": created_attachment_id},
-                        )
-                    )
-                else:
-                    # Some backends don't return an attachment id on attach.
-                    # Try listing attachments and matching by policy id.
-                    listed_after_attach = await _call(
-                        session,
-                        "drive_list_object_policy_attachments",
-                        {"object_id": placeholder_id},
-                    )
-                    steps.append(listed_after_attach)
-                    from_list = _find_attachment_id_for_policy(
-                        listed_after_attach.parsed_json, policy_id=policy_id_int
-                    )
-                    if from_list:
-                        steps.append(
-                            await _call(
-                                session,
-                                "drive_detach_policy_from_object",
-                                {"object_id": placeholder_id, "attachment_id": from_list},
-                            )
-                        )
-                        # Proceed to next stage.
-                    else:
-                        attachment_id = os.environ.get("STELLARBRIDGE_TEST_ATTACHMENT_ID", "").strip()
-                        if attachment_id:
-                            steps.append(
-                                await _call(
-                                    session,
-                                    "drive_detach_policy_from_object",
-                                    {"object_id": placeholder_id, "attachment_id": attachment_id},
-                                )
-                            )
-                        else:
-                            steps.append(
-                                ToolStep(
-                                    tool_name="drive_detach_policy_from_object",
-                                    arguments={"object_id": placeholder_id, "attachment_id": "<missing>"},
-                                    status="SKIP",
-                                    note="Could not determine attachment id from attach or list output. Set STELLARBRIDGE_TEST_ATTACHMENT_ID to exercise detach.",
-                                    parsed_json=None,
-                                    raw_text_preview="",
-                                )
-                            )
-            else:
+            # Policy mutation tools are intentionally NOT exercised.
+            # Agents are explicitly banned from mutating policies in the API.
+            if "drive_attach_policy_to_object" in tool_names:
                 steps.append(
                     ToolStep(
                         tool_name="drive_attach_policy_to_object",
-                        arguments={"object_id": placeholder_id, "policy_id": "<missing STELLARBRIDGE_TEST_POLICY_ID>"},
+                        arguments={"object_id": placeholder_id, "policy_id": "<not exercised>"},
                         status="SKIP",
-                        note="Set STELLARBRIDGE_TEST_POLICY_ID to exercise this tool.",
+                        note="Not exercised: policy mutations are banned for agent/API-key workflows.",
                         parsed_json=None,
                         raw_text_preview="",
                     )
                 )
+            if "drive_detach_policy_from_object" in tool_names:
                 steps.append(
                     ToolStep(
                         tool_name="drive_detach_policy_from_object",
-                        arguments={"object_id": placeholder_id, "attachment_id": "<missing>"},
+                        arguments={"object_id": placeholder_id, "attachment_id": "<not exercised>"},
                         status="SKIP",
-                        note="Provide STELLARBRIDGE_TEST_POLICY_ID (and optionally STELLARBRIDGE_TEST_ATTACHMENT_ID) to exercise attach/detach.",
+                        note="Not exercised: policy mutations are banned for agent/API-key workflows.",
                         parsed_json=None,
                         raw_text_preview="",
                     )
