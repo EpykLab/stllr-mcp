@@ -80,6 +80,14 @@ def _classify_failure(*, tool_name: str, raw_text_preview: str) -> tuple[str, st
             "Known limitation: Drive share is not supported for API key callers (422).",
         )
 
+    # File-request inspection appears to be intended for uploader sessions.
+    # The live API returns 401 with a message directing callers to use the upload link.
+    if tool_name == "requests_get_file_request" and "401 Unauthorized" in msg:
+        return (
+            "SKIP",
+            "Known limitation: request inspection requires an upload session (API key cannot GET request details).",
+        )
+
     # Helpful notes for common auth/rate-limit failures.
     if "401 Unauthorized" in msg:
         return ("FAIL", "Unauthorized (401) for this endpoint with current API key.")
@@ -632,22 +640,44 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                     tid = _find_transfer_tid_by_name(lt.parsed_json, name=transfer_name) if lt.status == "PASS" else None
                     tid_source = "list_match" if tid else tid_source
 
-                    steps.append(
-                        ToolStep(
-                            tool_name="(transfer_tid_lookup)",
-                            arguments={"transfer_name": transfer_name},
-                            status="PASS" if tid else "FAIL",
-                            note="matched by name via transfers_list_transfers" if tid else "no matching tid found in transfers_list_transfers",
-                            parsed_json={"transfer_name": transfer_name, "matched_tid": tid},
-                            raw_text_preview="",
-                        )
-                    )
-
-                if not tid:
                     # Final fallback: accept a user-provided tid if set.
-                    tid = os.environ.get("STELLARBRIDGE_TEST_TRANSFER_ID", "").strip() or None
+                    env_tid = os.environ.get("STELLARBRIDGE_TEST_TRANSFER_ID", "").strip() or None
+
                     if tid:
+                        steps.append(
+                            ToolStep(
+                                tool_name="(transfer_tid_lookup)",
+                                arguments={"transfer_name": transfer_name},
+                                status="PASS",
+                                note="matched by name via transfers_list_transfers",
+                                parsed_json={"transfer_name": transfer_name, "matched_tid": tid},
+                                raw_text_preview="",
+                            )
+                        )
+                    elif env_tid:
+                        steps.append(
+                            ToolStep(
+                                tool_name="(transfer_tid_lookup)",
+                                arguments={"transfer_name": transfer_name},
+                                status="SKIP",
+                                note="Upload did not return tid; using STELLARBRIDGE_TEST_TRANSFER_ID for downstream transfer tools.",
+                                parsed_json={"transfer_name": transfer_name, "matched_tid": None},
+                                raw_text_preview="",
+                            )
+                        )
+                        tid = env_tid
                         tid_source = "env"
+                    else:
+                        steps.append(
+                            ToolStep(
+                                tool_name="(transfer_tid_lookup)",
+                                arguments={"transfer_name": transfer_name},
+                                status="FAIL",
+                                note="no matching tid found in transfers_list_transfers",
+                                parsed_json={"transfer_name": transfer_name, "matched_tid": None},
+                                raw_text_preview="",
+                            )
+                        )
 
                 if tid:
                     steps.append(
