@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     # Env: STELLARBRIDGE_HTTP_TIMEOUT
     http_timeout: float = 30.0
 
+    # Retry settings for transient upstream throttling.
+    # Env: STELLARBRIDGE_HTTP_MAX_RETRIES
+    http_max_retries: int = 6
+
+    # Env: STELLARBRIDGE_HTTP_RETRY_BASE_SLEEP_S
+    http_retry_base_sleep_s: float = 1.0
+
+    # Env: STELLARBRIDGE_HTTP_RETRY_MAX_SLEEP_S
+    http_retry_max_sleep_s: float = 30.0
+
     model_config = {"env_prefix": "STELLARBRIDGE_", "env_file": ".env", "extra": "ignore"}
 
 

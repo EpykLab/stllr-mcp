@@ -23,11 +23,17 @@ class TestSettings:
         monkeypatch.delenv("STELLARBRIDGE_API_KEY", raising=False)
         monkeypatch.delenv("STELLARBRIDGE_JWT_TOKEN", raising=False)
         monkeypatch.delenv("STELLARBRIDGE_HTTP_TIMEOUT", raising=False)
+        monkeypatch.delenv("STELLARBRIDGE_HTTP_MAX_RETRIES", raising=False)
+        monkeypatch.delenv("STELLARBRIDGE_HTTP_RETRY_BASE_SLEEP_S", raising=False)
+        monkeypatch.delenv("STELLARBRIDGE_HTTP_RETRY_MAX_SLEEP_S", raising=False)
         s = SettingsWithoutEnvFile()
         assert s.api_url == "http://localhost:8080"
         assert s.api_key == ""
         assert s.jwt_token == ""
         assert s.http_timeout == 30.0
+        assert s.http_max_retries == 6
+        assert s.http_retry_base_sleep_s == 1.0
+        assert s.http_retry_max_sleep_s == 30.0
 
     def test_explicit_overrides(self) -> None:
         """Settings accepts explicit overrides (e.g. from env when loaded)."""

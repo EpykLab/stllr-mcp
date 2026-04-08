@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import threading
+import time
+from datetime import timezone
+from email.utils import parsedate_to_datetime
+from random import random
 from typing import Any
 
 import httpx
@@ -65,19 +69,53 @@ class StellarBridgeClient:
                 "No API key configured. Set STELLARBRIDGE_API_KEY environment variable."
             )
         url = f"{self._base()}{path}"
+
+        def _retry_after_seconds(resp: httpx.Response) -> float | None:
+            raw = resp.headers.get("Retry-After")
+            if not raw:
+                return None
+            raw = raw.strip()
+            if raw.isdigit():
+                return float(int(raw, 10))
+            try:
+                dt = parsedate_to_datetime(raw)
+            except Exception:
+                return None
+            # parsedate_to_datetime may return naive; treat as UTC.
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return max(0.0, (dt.timestamp() - time.time()))
+
+        max_retries = max(0, int(getattr(settings, "http_max_retries", 0)))
+        base_sleep = float(getattr(settings, "http_retry_base_sleep_s", 1.0))
+        max_sleep = float(getattr(settings, "http_retry_max_sleep_s", 30.0))
+
         with httpx.Client(timeout=settings.http_timeout) as client:
-            resp = client.request(
-                method,
-                url,
-                headers=self._headers(form_body=data is not None),
-                params={k: v for k, v in (params or {}).items() if v is not None},
-                json=json,
-                data=data,
-            )
-            resp.raise_for_status()
-            if resp.content:
-                return resp.json()
-            return None
+            attempt = 0
+            while True:
+                resp = client.request(
+                    method,
+                    url,
+                    headers=self._headers(form_body=data is not None),
+                    params={k: v for k, v in (params or {}).items() if v is not None},
+                    json=json,
+                    data=data,
+                )
+
+                if resp.status_code == 429 and attempt < max_retries:
+                    attempt += 1
+                    # Prefer server-provided Retry-After when present.
+                    ra = _retry_after_seconds(resp)
+                    sleep_s = ra if ra is not None else base_sleep * (2 ** (attempt - 1))
+                    # Small jitter to reduce thundering herd; cap to avoid unbounded sleep.
+                    sleep_s = min(max_sleep, max(0.0, sleep_s + (random() * 0.25)))
+                    time.sleep(sleep_s)
+                    continue
+
+                resp.raise_for_status()
+                if resp.content:
+                    return resp.json()
+                return None
 
     # ------------------------------------------------------------------
     # Drive / VFS – objects
