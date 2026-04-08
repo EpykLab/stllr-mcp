@@ -92,7 +92,10 @@ def _classify_failure(*, tool_name: str, raw_text_preview: str) -> tuple[str, st
     if "401 Unauthorized" in msg:
         return ("FAIL", "Unauthorized (401) for this endpoint with current API key.")
     if "429" in msg or "Rate limited" in msg:
-        return ("FAIL", "Rate limited (429). Retry later or reduce request volume.")
+        return (
+            "SKIP",
+            "Rate limited (429). Not treated as product failure; retry later or reduce request volume.",
+        )
 
     return ("FAIL", "")
 
@@ -141,6 +144,33 @@ def _unwrap_data(raw: Any) -> Any:
     if raw.get("error") is not None:
         return raw
     return raw.get("data")
+
+
+def _extract_partner_ids_from_projects_list(raw: Any) -> list[int]:
+    """Best-effort extraction of partner ids from projects_list_projects response."""
+    data = _unwrap_data(raw)
+    projects = None
+    if isinstance(data, dict) and isinstance(data.get("projects"), list):
+        projects = data["projects"]
+    if not projects:
+        return []
+    ids: set[int] = set()
+    for p in projects:
+        if not isinstance(p, dict):
+            continue
+        edges = p.get("edges")
+        if not isinstance(edges, dict):
+            continue
+        partners = edges.get("partners")
+        if not isinstance(partners, list):
+            continue
+        for partner in partners:
+            if not isinstance(partner, dict):
+                continue
+            pid = partner.get("id")
+            if isinstance(pid, int):
+                ids.add(pid)
+    return sorted(ids)
 
 
 def _first_text_block(content: list[Any]) -> str | None:
@@ -309,7 +339,67 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
             # -----------------
             # Baseline: audit + projects + drive list
             # -----------------
-            steps.append(await _call(session, "projects_list_projects", {}))
+            proj_list = await _call(session, "projects_list_projects", {})
+            steps.append(proj_list)
+
+            # Optional: exercise project create/delete without requiring out-of-band partner IDs.
+            # If partner IDs aren't provided explicitly, infer from existing projects list.
+            partner_ids: list[int] = []
+            env_partner_ids = os.environ.get("STELLARBRIDGE_TEST_PARTNER_IDS", "").strip()
+            if env_partner_ids:
+                try:
+                    partner_ids = [int(x.strip(), 10) for x in env_partner_ids.split(",") if x.strip()]
+                except ValueError:
+                    partner_ids = []
+            if not partner_ids:
+                partner_ids = _extract_partner_ids_from_projects_list(proj_list.parsed_json)
+
+            if partner_ids:
+                created_project = await _call(
+                    session,
+                    "projects_create_project",
+                    {
+                        "name": f"mcp-live-project-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+                        "partner_ids": partner_ids,
+                    },
+                )
+                steps.append(created_project)
+                created_id = _extract_int_id(created_project.parsed_json)
+                if created_id is not None:
+                    # Best effort: delete immediately (should be empty).
+                    steps.append(await _call(session, "projects_delete_project", {"project_id": created_id}))
+                else:
+                    steps.append(
+                        ToolStep(
+                            tool_name="projects_delete_project",
+                            arguments={"project_id": "<missing from create response>"},
+                            status="SKIP",
+                            note="projects_create_project did not return an id to delete.",
+                            parsed_json=None,
+                            raw_text_preview="",
+                        )
+                    )
+            else:
+                steps.append(
+                    ToolStep(
+                        tool_name="projects_create_project",
+                        arguments={"name": "<missing>", "partner_ids": "<missing STELLARBRIDGE_TEST_PARTNER_IDS>"},
+                        status="SKIP",
+                        note="Set STELLARBRIDGE_TEST_PARTNER_IDS or ensure projects_list_projects returns partner ids.",
+                        parsed_json=None,
+                        raw_text_preview="",
+                    )
+                )
+                steps.append(
+                    ToolStep(
+                        tool_name="projects_delete_project",
+                        arguments={"project_id": "<requires empty disposable project>"},
+                        status="SKIP",
+                        note="Requires an empty disposable project id (or enable project create/delete above).",
+                        parsed_json=None,
+                        raw_text_preview="",
+                    )
+                )
             steps.append(await _call(session, "audit_get_audit_logs", {}))
             steps.append(
                 await _call(session, "audit_get_audit_logs_for_file", {"file_name": "mcp-live-workflow"})
@@ -881,41 +971,6 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                         raw_text_preview="",
                     )
                 )
-
-            # Projects create/delete require partner IDs.
-            if os.environ.get("STELLARBRIDGE_TEST_PARTNER_IDS", "").strip():
-                # Leave to the parametrized live pytest suite for now.
-                steps.append(
-                    ToolStep(
-                        tool_name="projects_create_project",
-                        arguments={"name": "<auto>", "partner_ids": "<from STELLARBRIDGE_TEST_PARTNER_IDS>"},
-                        status="SKIP",
-                        note="Not implemented in workflow runner yet (prefer live pytest spec with partner IDs).",
-                        parsed_json=None,
-                        raw_text_preview="",
-                    )
-                )
-            else:
-                steps.append(
-                    ToolStep(
-                        tool_name="projects_create_project",
-                        arguments={"name": "<missing>", "partner_ids": "<missing STELLARBRIDGE_TEST_PARTNER_IDS>"},
-                        status="SKIP",
-                        note="Set STELLARBRIDGE_TEST_PARTNER_IDS to exercise projects_create_project.",
-                        parsed_json=None,
-                        raw_text_preview="",
-                    )
-                )
-            steps.append(
-                ToolStep(
-                    tool_name="projects_delete_project",
-                    arguments={"project_id": "<requires empty disposable project>"},
-                    status="SKIP",
-                    note="Requires an empty disposable project id (or implement project create+cleanup).",
-                    parsed_json=None,
-                    raw_text_preview="",
-                )
-            )
 
     return steps
 
