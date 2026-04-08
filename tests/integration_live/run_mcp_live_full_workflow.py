@@ -214,6 +214,56 @@ def _extract_str(raw: Any, *keys: str) -> str | None:
     return None
 
 
+def _extract_attachment_id(raw: Any) -> str | None:
+    """Extract attachment id from drive_attach_policy_to_object responses."""
+    data = _unwrap_data(raw)
+    if isinstance(data, dict):
+        v = data.get("attachmentId") or data.get("attachment_id")
+        if isinstance(v, (str, int)) and str(v):
+            return str(v)
+        att = data.get("attachment")
+        if isinstance(att, dict):
+            v2 = att.get("id")
+            if isinstance(v2, (str, int)) and str(v2):
+                return str(v2)
+    return None
+
+
+def _find_attachment_id_for_policy(raw: Any, *, policy_id: int) -> str | None:
+    """Find attachment id for policy_id from list_object_policy_attachments output."""
+    data = _unwrap_data(raw)
+    items: list[Any] | None = None
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        if isinstance(data.get("attachments"), list):
+            items = data["attachments"]
+        elif isinstance(data.get("policy_attachments"), list):
+            items = data["policy_attachments"]
+        elif isinstance(data.get("items"), list):
+            items = data["items"]
+    if not items:
+        return None
+
+    def _as_int(v: Any) -> int | None:
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str) and v.isdigit():
+            return int(v, 10)
+        return None
+
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        pid = _as_int(it.get("policy_id") or it.get("policyId") or it.get("policy"))
+        if pid != policy_id:
+            continue
+        att_id = it.get("id") or it.get("attachment_id") or it.get("attachmentId")
+        if isinstance(att_id, (str, int)) and str(att_id):
+            return str(att_id)
+    return None
+
+
 def _find_transfer_tid_by_name(raw: Any, *, name: str) -> str | None:
     """Find a transfer tid by exact name from transfers_list_transfers output."""
     data = _unwrap_data(raw)
@@ -309,7 +359,9 @@ async def _call_with_retries(
         await asyncio.sleep(base_sleep_s * (2 ** (attempt - 1)))
 
 
-async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None) -> list[ToolStep]:
+async def _run(
+    repo_root: Path, *, project_id: int | None, recipient_email: str | None
+) -> tuple[list[ToolStep], int | None]:
     params = StdioServerParameters(
         command="uv",
         args=["run", "python", "-m", "stellarbridge_mcp"],
@@ -342,8 +394,11 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
             proj_list = await _call(session, "projects_list_projects", {})
             steps.append(proj_list)
 
-            # Optional: exercise project create/delete without requiring out-of-band partner IDs.
-            # If partner IDs aren't provided explicitly, infer from existing projects list.
+            # Resolve the Drive project id for this workflow.
+            # Default behavior: require an explicit project id OR create a disposable project.
+            workflow_project_id = project_id
+            created_workflow_project = False
+
             partner_ids: list[int] = []
             env_partner_ids = os.environ.get("STELLARBRIDGE_TEST_PARTNER_IDS", "").strip()
             if env_partner_ids:
@@ -354,52 +409,95 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
             if not partner_ids:
                 partner_ids = _extract_partner_ids_from_projects_list(proj_list.parsed_json)
 
-            if partner_ids:
-                created_project = await _call(
-                    session,
-                    "projects_create_project",
-                    {
-                        "name": f"mcp-live-project-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
-                        "partner_ids": partner_ids,
-                    },
-                )
-                steps.append(created_project)
-                created_id = _extract_int_id(created_project.parsed_json)
-                if created_id is not None:
-                    # Best effort: delete immediately (should be empty).
-                    steps.append(await _call(session, "projects_delete_project", {"project_id": created_id}))
+            if workflow_project_id is None:
+                if partner_ids:
+                    created = await _call(
+                        session,
+                        "projects_create_project",
+                        {
+                            "name": f"mcp-live-workflow-project-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+                            "partner_ids": partner_ids,
+                        },
+                    )
+                    steps.append(created)
+                    created_id = _extract_int_id(created.parsed_json)
+                    if created_id is not None:
+                        workflow_project_id = created_id
+                        created_workflow_project = True
+                    else:
+                        steps.append(
+                            ToolStep(
+                                tool_name="drive_list_drive_objects",
+                                arguments={"project_id": "<missing from projects_create_project response>"},
+                                status="SKIP",
+                                note="Cannot run Drive workflow without a project id.",
+                                parsed_json=None,
+                                raw_text_preview="",
+                            )
+                        )
+                        return steps, None
                 else:
                     steps.append(
                         ToolStep(
-                            tool_name="projects_delete_project",
-                            arguments={"project_id": "<missing from create response>"},
+                            tool_name="projects_create_project",
+                            arguments={"name": "<missing>", "partner_ids": "<missing STELLARBRIDGE_TEST_PARTNER_IDS>"},
                             status="SKIP",
-                            note="projects_create_project did not return an id to delete.",
+                            note="Set STELLARBRIDGE_TEST_PROJECT_ID or STELLARBRIDGE_TEST_PARTNER_IDS to create a disposable workflow project.",
                             parsed_json=None,
                             raw_text_preview="",
                         )
                     )
-            else:
-                steps.append(
-                    ToolStep(
-                        tool_name="projects_create_project",
-                        arguments={"name": "<missing>", "partner_ids": "<missing STELLARBRIDGE_TEST_PARTNER_IDS>"},
-                        status="SKIP",
-                        note="Set STELLARBRIDGE_TEST_PARTNER_IDS or ensure projects_list_projects returns partner ids.",
-                        parsed_json=None,
-                        raw_text_preview="",
+                    return steps, None
+
+            # Optional: exercise project create/delete (only when a project id is explicitly provided).
+            # When project_id is missing we already exercised create and will delete at the end.
+            if project_id is not None:
+                if partner_ids:
+                    created_project = await _call(
+                        session,
+                        "projects_create_project",
+                        {
+                            "name": f"mcp-live-project-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+                            "partner_ids": partner_ids,
+                        },
                     )
-                )
-                steps.append(
-                    ToolStep(
-                        tool_name="projects_delete_project",
-                        arguments={"project_id": "<requires empty disposable project>"},
-                        status="SKIP",
-                        note="Requires an empty disposable project id (or enable project create/delete above).",
-                        parsed_json=None,
-                        raw_text_preview="",
+                    steps.append(created_project)
+                    created_id = _extract_int_id(created_project.parsed_json)
+                    if created_id is not None:
+                        # Best effort: delete immediately (should be empty).
+                        steps.append(await _call(session, "projects_delete_project", {"project_id": created_id}))
+                    else:
+                        steps.append(
+                            ToolStep(
+                                tool_name="projects_delete_project",
+                                arguments={"project_id": "<missing from create response>"},
+                                status="SKIP",
+                                note="projects_create_project did not return an id to delete.",
+                                parsed_json=None,
+                                raw_text_preview="",
+                            )
+                        )
+                else:
+                    steps.append(
+                        ToolStep(
+                            tool_name="projects_create_project",
+                            arguments={"name": "<missing>", "partner_ids": "<missing STELLARBRIDGE_TEST_PARTNER_IDS>"},
+                            status="SKIP",
+                            note="Set STELLARBRIDGE_TEST_PARTNER_IDS or ensure projects_list_projects returns partner ids.",
+                            parsed_json=None,
+                            raw_text_preview="",
+                        )
                     )
-                )
+                    steps.append(
+                        ToolStep(
+                            tool_name="projects_delete_project",
+                            arguments={"project_id": "<requires empty disposable project>"},
+                            status="SKIP",
+                            note="Requires an empty disposable project id (or enable project create/delete above).",
+                            parsed_json=None,
+                            raw_text_preview="",
+                        )
+                    )
             steps.append(await _call(session, "audit_get_audit_logs", {}))
             steps.append(
                 await _call(session, "audit_get_audit_logs_for_file", {"file_name": "mcp-live-workflow"})
@@ -424,7 +522,7 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                     )
                 )
 
-            steps.append(await _call(session, "drive_list_drive_objects", {"project_id": project_id}))
+            steps.append(await _call(session, "drive_list_drive_objects", {"project_id": workflow_project_id}))
 
             # -----------------
             # Drive workflow: folder + placeholder + rename + move + upload-url + PUT + complete + download-url + share + delete
@@ -432,7 +530,10 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
             folder = await _call(
                 session,
                 "drive_create_drive_folder",
-                {"project_id": project_id, "name": f"mcp-live-folder-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"},
+                {
+                    "project_id": workflow_project_id,
+                    "name": f"mcp-live-folder-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+                },
             )
             steps.append(folder)
             folder_id = _extract_int_id(folder.parsed_json)
@@ -441,7 +542,7 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                 session,
                 "drive_create_drive_file_placeholder",
                 {
-                    "project_id": project_id,
+                    "project_id": workflow_project_id,
                     "name": f"mcp-live-placeholder-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.bin",
                     "mime_type": "application/octet-stream",
                 },
@@ -488,15 +589,66 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
 
             # Optional policy attach/detach (often blocked for ApiAgent keys)
             policy_id = os.environ.get("STELLARBRIDGE_TEST_POLICY_ID", "").strip()
-            attachment_id = os.environ.get("STELLARBRIDGE_TEST_ATTACHMENT_ID", "").strip()
             if policy_id.isdigit():
-                steps.append(
-                    await _call(
-                        session,
-                        "drive_attach_policy_to_object",
-                        {"object_id": placeholder_id, "policy_id": int(policy_id, 10)},
-                    )
+                policy_id_int = int(policy_id, 10)
+                attach = await _call(
+                    session,
+                    "drive_attach_policy_to_object",
+                    {"object_id": placeholder_id, "policy_id": policy_id_int},
                 )
+                steps.append(attach)
+
+                created_attachment_id = _extract_attachment_id(attach.parsed_json)
+                if created_attachment_id:
+                    steps.append(
+                        await _call(
+                            session,
+                            "drive_detach_policy_from_object",
+                            {"object_id": placeholder_id, "attachment_id": created_attachment_id},
+                        )
+                    )
+                else:
+                    # Some backends don't return an attachment id on attach.
+                    # Try listing attachments and matching by policy id.
+                    listed_after_attach = await _call(
+                        session,
+                        "drive_list_object_policy_attachments",
+                        {"object_id": placeholder_id},
+                    )
+                    steps.append(listed_after_attach)
+                    from_list = _find_attachment_id_for_policy(
+                        listed_after_attach.parsed_json, policy_id=policy_id_int
+                    )
+                    if from_list:
+                        steps.append(
+                            await _call(
+                                session,
+                                "drive_detach_policy_from_object",
+                                {"object_id": placeholder_id, "attachment_id": from_list},
+                            )
+                        )
+                        # Proceed to next stage.
+                    else:
+                        attachment_id = os.environ.get("STELLARBRIDGE_TEST_ATTACHMENT_ID", "").strip()
+                        if attachment_id:
+                            steps.append(
+                                await _call(
+                                    session,
+                                    "drive_detach_policy_from_object",
+                                    {"object_id": placeholder_id, "attachment_id": attachment_id},
+                                )
+                            )
+                        else:
+                            steps.append(
+                                ToolStep(
+                                    tool_name="drive_detach_policy_from_object",
+                                    arguments={"object_id": placeholder_id, "attachment_id": "<missing>"},
+                                    status="SKIP",
+                                    note="Could not determine attachment id from attach or list output. Set STELLARBRIDGE_TEST_ATTACHMENT_ID to exercise detach.",
+                                    parsed_json=None,
+                                    raw_text_preview="",
+                                )
+                            )
             else:
                 steps.append(
                     ToolStep(
@@ -508,22 +660,12 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                         raw_text_preview="",
                     )
                 )
-
-            if attachment_id:
-                steps.append(
-                    await _call(
-                        session,
-                        "drive_detach_policy_from_object",
-                        {"object_id": placeholder_id, "attachment_id": attachment_id},
-                    )
-                )
-            else:
                 steps.append(
                     ToolStep(
                         tool_name="drive_detach_policy_from_object",
-                        arguments={"object_id": placeholder_id, "attachment_id": "<missing STELLARBRIDGE_TEST_ATTACHMENT_ID>"},
+                        arguments={"object_id": placeholder_id, "attachment_id": "<missing>"},
                         status="SKIP",
-                        note="Set STELLARBRIDGE_TEST_ATTACHMENT_ID to exercise this tool.",
+                        note="Provide STELLARBRIDGE_TEST_POLICY_ID (and optionally STELLARBRIDGE_TEST_ATTACHMENT_ID) to exercise attach/detach.",
                         parsed_json=None,
                         raw_text_preview="",
                     )
@@ -613,7 +755,7 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                     session,
                     "drive_create_drive_file_placeholder",
                     {
-                        "project_id": project_id,
+                        "project_id": workflow_project_id,
                         "name": f"mcp-live-uploadtool-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.bin",
                         "mime_type": "application/octet-stream",
                     },
@@ -655,6 +797,10 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
             steps.append(await _call(session, "drive_delete_drive_object", {"object_id": placeholder_id}))
             if folder_id is not None:
                 steps.append(await _call(session, "drive_delete_drive_object", {"object_id": folder_id}))
+
+            if created_workflow_project and workflow_project_id is not None:
+                # Best effort: delete the disposable project (should now be empty).
+                steps.append(await _call(session, "projects_delete_project", {"project_id": workflow_project_id}))
 
             # -----------------
             # Requests workflow (create -> get/delete if request_id is available)
@@ -972,10 +1118,12 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                     )
                 )
 
-    return steps
+    return steps, workflow_project_id
 
 
-def _write_report(path: Path, *, project_id: int, recipient_email: str | None, steps: list[ToolStep]) -> None:
+def _write_report(
+    path: Path, *, project_id: int | None, recipient_email: str | None, steps: list[ToolStep]
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).isoformat()
     api_url = os.environ.get("STELLARBRIDGE_API_URL", "").strip()
@@ -985,7 +1133,7 @@ def _write_report(path: Path, *, project_id: int, recipient_email: str | None, s
     lines.append("")
     lines.append(f"- Timestamp (UTC): `{ts}`")
     lines.append(f"- API URL: `{api_url}`")
-    lines.append(f"- Project ID: `{project_id}`")
+    lines.append(f"- Project ID: `{project_id if project_id is not None else '<none>'}`")
     lines.append(f"- Recipient email set: `{bool(recipient_email)}`")
     lines.append(f"- Mutations enabled: `{_truthy_env('STELLARBRIDGE_LIVE_ALLOW_MUTATIONS')}`")
     lines.append("")
@@ -1070,10 +1218,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     raw_pid = os.environ.get("STELLARBRIDGE_TEST_PROJECT_ID", "").strip()
-    if not raw_pid.isdigit():
-        print("Set STELLARBRIDGE_TEST_PROJECT_ID (numeric Drive project id)", file=sys.stderr)
-        return 2
-    project_id = int(raw_pid, 10)
+    project_id: int | None = int(raw_pid, 10) if raw_pid.isdigit() else None
+    if project_id is None:
+        print(
+            "STELLARBRIDGE_TEST_PROJECT_ID is not set; the runner will try to create a disposable project via partner ids",
+            file=sys.stderr,
+        )
 
     recipient = os.environ.get("STELLARBRIDGE_TEST_RECIPIENT_EMAIL", "").strip() or None
     if not recipient:
@@ -1083,8 +1233,10 @@ def main(argv: list[str] | None = None) -> int:
 
     import asyncio
 
-    steps = asyncio.run(_run(_REPO_ROOT, project_id=project_id, recipient_email=recipient))
-    _write_report(out_path, project_id=project_id, recipient_email=recipient, steps=steps)
+    steps, resolved_project_id = asyncio.run(
+        _run(_REPO_ROOT, project_id=project_id, recipient_email=recipient)
+    )
+    _write_report(out_path, project_id=resolved_project_id, recipient_email=recipient, steps=steps)
     print(str(out_path))
 
     # Non-zero if any FAIL occurred.
