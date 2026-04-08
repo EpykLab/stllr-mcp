@@ -748,10 +748,14 @@ async def _run(
             # -----------------
             if _FIXTURE.is_file():
                 transfer_name = f"mcp-live-transfer-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.bin"
-                up_t = await _call(
+                # This tool is the most likely to hit upstream throttling (429) because it
+                # performs multiple API calls + S3 PUTs. Prefer retry/backoff over aborting.
+                up_t = await _call_with_retries(
                     session,
                     "transfers_upload_transfer_multipart_file",
                     {"file_path": str(_FIXTURE), "file_name": transfer_name},
+                    retries=6,
+                    base_sleep_s=1.0,
                 )
                 steps.append(up_t)
 
