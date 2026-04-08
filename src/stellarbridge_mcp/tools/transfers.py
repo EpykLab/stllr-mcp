@@ -34,6 +34,9 @@ def get_transfer(
 
     If you do not have a transfer id, call ``list_transfers`` first and use a
     ``tid`` from the response.
+
+    Tip: if you just uploaded a transfer and didn't get a ``tid`` back from the
+    upload/finalize response, list transfers and select the target by name.
     """
     return get_client().get_transfer(transfer_id)
 
@@ -42,7 +45,11 @@ def get_transfer(
 def delete_transfer(
     transfer_id: Annotated[str, "ID of the transfer to delete"],
 ) -> Any:
-    """Delete a transfer and its associated files."""
+    """Delete a transfer and its associated files.
+
+    If you do not already have a transfer id, call ``list_transfers`` and pick
+    the target transfer first.
+    """
     return get_client().delete_transfer(transfer_id)
 
 
@@ -54,6 +61,9 @@ def share_transfer(
     """Share an existing transfer with a recipient by email.
 
     Use ``list_transfers`` to discover a ``tid`` when needed.
+
+    Tip: if you just uploaded a transfer and didn't get a ``tid`` back, list
+    transfers and select the target by name.
     """
     return get_client().share_transfer(transfer_id, recipient_email)
 
@@ -67,6 +77,10 @@ def add_transfer_to_drive(
     """Move a completed transfer into a Drive project folder.
 
     Use ``list_transfers`` to discover a ``tid`` when needed.
+
+    Tip: a 422 from this endpoint often means you selected a transfer that is
+    not eligible (e.g., not completed). List transfers and choose a different
+    target.
     """
     return get_client().add_transfer_to_drive(transfer_id, project_id, parent_id)
 
