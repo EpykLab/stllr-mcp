@@ -187,6 +187,21 @@ def _first_text_block(content: list[Any]) -> str | None:
 
 
 def _parse_json_from_tool_content(content: list[Any]) -> Any:
+    # Some MCP implementations may return a native JSON content block (not text).
+    for block in content:
+        btype = getattr(block, "type", None)
+        if btype is None and isinstance(block, dict):
+            btype = block.get("type")
+        if btype in ("json", "application/json"):
+            if isinstance(block, dict):
+                if "json" in block:
+                    return block.get("json")
+                if "data" in block:
+                    return block.get("data")
+            v = getattr(block, "json", None)
+            if v is not None:
+                return v
+
     txt = _first_text_block(content)
     if not txt:
         return None
@@ -227,9 +242,10 @@ def _find_transfer_tid_by_name(raw: Any, *, name: str) -> str | None:
     for it in items:
         if not isinstance(it, dict):
             continue
-        if it.get("name") != name:
+        iname = it.get("name") or it.get("fileName") or it.get("file_name")
+        if iname != name:
             continue
-        tid = it.get("tid") or it.get("id") or it.get("transfer_id")
+        tid = it.get("tid") or it.get("transfer_id") or it.get("transferId") or it.get("id")
         if isinstance(tid, str) and tid:
             return tid
     return None
@@ -307,6 +323,55 @@ async def _call_with_retries(
         if "Rate limited" not in msg and "429" not in msg:
             return step
         await asyncio.sleep(base_sleep_s * (2 ** (attempt - 1)))
+
+
+async def _lookup_transfer_tid(
+    session: ClientSession,
+    *,
+    transfer_name: str,
+    attempts: int = 4,
+    sleep_s: float = 1.0,
+) -> tuple[list[ToolStep], str | None]:
+    """Best-effort: list transfers and match by name (eventual consistency tolerant)."""
+    import asyncio
+
+    steps: list[ToolStep] = []
+    for i in range(attempts):
+        lt = await _call_with_retries(
+            session,
+            "transfers_list_transfers",
+            {},
+            retries=4,
+            base_sleep_s=1.0,
+        )
+        steps.append(lt)
+        tid = _find_transfer_tid_by_name(lt.parsed_json, name=transfer_name) if lt.status == "PASS" else None
+        if tid:
+            steps.append(
+                ToolStep(
+                    tool_name="(transfer_tid_lookup)",
+                    arguments={"transfer_name": transfer_name},
+                    status="PASS",
+                    note=f"matched by name via transfers_list_transfers (attempt {i+1}/{attempts})",
+                    parsed_json={"transfer_name": transfer_name, "matched_tid": tid},
+                    raw_text_preview="",
+                ),
+            )
+            return steps, tid
+        if i < attempts - 1:
+            await asyncio.sleep(sleep_s * (2**i))
+
+    steps.append(
+        ToolStep(
+            tool_name="(transfer_tid_lookup)",
+            arguments={"transfer_name": transfer_name},
+            status="SKIP",
+            note="Upload did not return a tid and no matching transfer was found by name. Provide STELLARBRIDGE_TEST_TRANSFER_ID to exercise downstream transfer tools.",
+            parsed_json={"transfer_name": transfer_name, "matched_tid": None},
+            raw_text_preview="",
+        ),
+    )
+    return steps, None
 
 
 async def _run(
@@ -689,10 +754,6 @@ async def _run(
             if folder_id is not None:
                 steps.append(await _call(session, "drive_delete_drive_object", {"object_id": folder_id}))
 
-            if created_workflow_project and workflow_project_id is not None:
-                # Best effort: delete the disposable project (should now be empty).
-                steps.append(await _call(session, "projects_delete_project", {"project_id": workflow_project_id}))
-
             # -----------------
             # Requests workflow (create -> get/delete if request_id is available)
             # -----------------
@@ -764,28 +825,19 @@ async def _run(
                 tid = _extract_str(up_t.parsed_json, "tid", "transfer_id", "transferId", "id")
 
                 if not tid:
-                    # Fallback: discover tid by listing transfers and matching on generated name.
-                    # Keep this intentionally lightweight to avoid rate limiting.
-                    lt = await _call_with_retries(session, "transfers_list_transfers", {}, retries=4, base_sleep_s=1.0)
-                    steps.append(lt)
-                    tid = _find_transfer_tid_by_name(lt.parsed_json, name=transfer_name) if lt.status == "PASS" else None
+                    lookup_steps, tid = await _lookup_transfer_tid(
+                        session,
+                        transfer_name=transfer_name,
+                        attempts=4,
+                        sleep_s=1.0,
+                    )
+                    steps.extend(lookup_steps)
                     tid_source = "list_match" if tid else tid_source
 
                     # Final fallback: accept a user-provided tid if set.
                     env_tid = os.environ.get("STELLARBRIDGE_TEST_TRANSFER_ID", "").strip() or None
 
-                    if tid:
-                        steps.append(
-                            ToolStep(
-                                tool_name="(transfer_tid_lookup)",
-                                arguments={"transfer_name": transfer_name},
-                                status="PASS",
-                                note="matched by name via transfers_list_transfers",
-                                parsed_json={"transfer_name": transfer_name, "matched_tid": tid},
-                                raw_text_preview="",
-                            )
-                        )
-                    elif env_tid:
+                    if (not tid) and env_tid:
                         steps.append(
                             ToolStep(
                                 tool_name="(transfer_tid_lookup)",
@@ -798,17 +850,6 @@ async def _run(
                         )
                         tid = env_tid
                         tid_source = "env"
-                    else:
-                        steps.append(
-                            ToolStep(
-                                tool_name="(transfer_tid_lookup)",
-                                arguments={"transfer_name": transfer_name},
-                                status="FAIL",
-                                note="no matching tid found in transfers_list_transfers",
-                                parsed_json={"transfer_name": transfer_name, "matched_tid": None},
-                                raw_text_preview="",
-                            )
-                        )
 
                 if tid:
                     steps.append(
@@ -846,7 +887,7 @@ async def _run(
                         steps.append(
                             ToolStep(
                                 tool_name="transfers_add_transfer_to_drive",
-                                arguments={"transfer_id": tid, "project_id": project_id},
+                                arguments={"transfer_id": tid, "project_id": workflow_project_id},
                                 status="SKIP",
                                 note="Skipped because transfer_id came from STELLARBRIDGE_TEST_TRANSFER_ID (pre-existing).",
                                 parsed_json=None,
@@ -887,7 +928,7 @@ async def _run(
                             await _call(
                                 session,
                                 "transfers_add_transfer_to_drive",
-                                {"transfer_id": tid, "project_id": project_id},
+                                {"transfer_id": tid, "project_id": workflow_project_id},
                             )
                         )
                         steps.append(await _call(session, "transfers_delete_transfer", {"transfer_id": tid}))
@@ -925,7 +966,7 @@ async def _run(
                     steps.append(
                         ToolStep(
                             tool_name="transfers_add_transfer_to_drive",
-                            arguments={"transfer_id": "<missing tid>", "project_id": project_id},
+                            arguments={"transfer_id": "<missing tid>", "project_id": workflow_project_id},
                             status="SKIP",
                             note="No tid returned from upload; set STELLARBRIDGE_TEST_TRANSFER_ID to exercise downstream transfer tools.",
                             parsed_json=None,
@@ -953,9 +994,14 @@ async def _run(
             )
             steps.append(init)
             init_data = _unwrap_data(init.parsed_json)
-            upload_id = init_data.get("fileId") if isinstance(init_data, dict) else None
-            file_key = init_data.get("fileKey") if isinstance(init_data, dict) else None
-            if isinstance(upload_id, str) and isinstance(file_key, str) and upload_id and file_key:
+            upload_id = None
+            file_key = None
+            if isinstance(init_data, dict):
+                upload_id = init_data.get("fileId") or init_data.get("uploadId") or init_data.get("file_id")
+                file_key = init_data.get("fileKey") or init_data.get("file_key")
+            if upload_id is not None and file_key is not None and str(upload_id) and str(file_key):
+                upload_id = str(upload_id)
+                file_key = str(file_key)
                 steps.append(
                     await _call_with_retries(
                         session,
@@ -1012,6 +1058,10 @@ async def _run(
                         raw_text_preview="",
                     )
                 )
+
+            # Clean up disposable project at the very end, after all workflows that may reference it.
+            if created_workflow_project and workflow_project_id is not None:
+                steps.append(await _call(session, "projects_delete_project", {"project_id": workflow_project_id}))
 
     return steps, workflow_project_id
 
