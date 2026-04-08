@@ -159,6 +159,11 @@ def upload_transfer_multipart_file(
     Runs initialize_multipart_upload, fetches presigned URLs, uploads each part
     with HTTP PUT, then finalize_multipart_upload. Requires STELLARBRIDGE_API_KEY
     and network access from the MCP process to the API and to S3.
+
+    Note: the finalize response may not include the created transfer id (``tid``).
+    In that case, call ``list_transfers`` and select the target transfer by name
+    (or by other metadata) before calling tools like ``get_transfer`` or
+    ``add_transfer_to_drive``.
     """
     return run_transfer_multipart_upload(
         get_client(),
