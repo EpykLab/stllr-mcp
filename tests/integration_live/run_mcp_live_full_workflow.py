@@ -606,8 +606,24 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                         tid_source = "env"
 
                 if tid:
-                    steps.append(await _call(session, "transfers_get_transfer", {"transfer_id": tid}))
-                    steps.append(await _call(session, "transfers_get_transfer_public_info", {"transfer_id": tid}))
+                    steps.append(
+                        await _call_with_retries(
+                            session,
+                            "transfers_get_transfer",
+                            {"transfer_id": tid},
+                            retries=4,
+                            base_sleep_s=1.0,
+                        )
+                    )
+                    steps.append(
+                        await _call_with_retries(
+                            session,
+                            "transfers_get_transfer_public_info",
+                            {"transfer_id": tid},
+                            retries=4,
+                            base_sleep_s=1.0,
+                        )
+                    )
 
                     if tid_source == "env":
                         # Safety: never mutate an arbitrary pre-existing transfer id.
