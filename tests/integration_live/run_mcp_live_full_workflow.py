@@ -577,6 +577,7 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                 steps.append(up_t)
 
                 # Prefer returned tid if API now provides it.
+                tid_source = "upload_response"
                 tid = _extract_str(up_t.parsed_json, "tid", "transfer_id", "transferId", "id")
 
                 if not tid:
@@ -585,6 +586,7 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                     lt = await _call_with_retries(session, "transfers_list_transfers", {}, retries=4, base_sleep_s=1.0)
                     steps.append(lt)
                     tid = _find_transfer_tid_by_name(lt.parsed_json, name=transfer_name) if lt.status == "PASS" else None
+                    tid_source = "list_match" if tid else tid_source
 
                     steps.append(
                         ToolStep(
@@ -600,39 +602,73 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                 if not tid:
                     # Final fallback: accept a user-provided tid if set.
                     tid = os.environ.get("STELLARBRIDGE_TEST_TRANSFER_ID", "").strip() or None
+                    if tid:
+                        tid_source = "env"
 
                 if tid:
                     steps.append(await _call(session, "transfers_get_transfer", {"transfer_id": tid}))
-                    steps.append(
-                        await _call(session, "transfers_get_transfer_public_info", {"transfer_id": tid})
-                    )
-                    if recipient_email:
-                        steps.append(
-                            await _call(
-                                session,
-                                "transfers_share_transfer",
-                                {"transfer_id": tid, "recipient_email": recipient_email},
-                            )
-                        )
-                    else:
+                    steps.append(await _call(session, "transfers_get_transfer_public_info", {"transfer_id": tid}))
+
+                    if tid_source == "env":
+                        # Safety: never mutate an arbitrary pre-existing transfer id.
                         steps.append(
                             ToolStep(
                                 tool_name="transfers_share_transfer",
-                                arguments={"transfer_id": tid, "recipient_email": "<missing STELLARBRIDGE_TEST_RECIPIENT_EMAIL>"},
+                                arguments={"transfer_id": tid, "recipient_email": recipient_email or "<missing>"},
                                 status="SKIP",
-                                note="Set STELLARBRIDGE_TEST_RECIPIENT_EMAIL to exercise share_transfer.",
+                                note="Skipped because transfer_id came from STELLARBRIDGE_TEST_TRANSFER_ID (pre-existing).",
                                 parsed_json=None,
                                 raw_text_preview="",
                             )
                         )
-                    steps.append(
-                        await _call(
-                            session,
-                            "transfers_add_transfer_to_drive",
-                            {"transfer_id": tid, "project_id": project_id},
+                        steps.append(
+                            ToolStep(
+                                tool_name="transfers_add_transfer_to_drive",
+                                arguments={"transfer_id": tid, "project_id": project_id},
+                                status="SKIP",
+                                note="Skipped because transfer_id came from STELLARBRIDGE_TEST_TRANSFER_ID (pre-existing).",
+                                parsed_json=None,
+                                raw_text_preview="",
+                            )
                         )
-                    )
-                    steps.append(await _call(session, "transfers_delete_transfer", {"transfer_id": tid}))
+                        steps.append(
+                            ToolStep(
+                                tool_name="transfers_delete_transfer",
+                                arguments={"transfer_id": tid},
+                                status="SKIP",
+                                note="Skipped because transfer_id came from STELLARBRIDGE_TEST_TRANSFER_ID (pre-existing).",
+                                parsed_json=None,
+                                raw_text_preview="",
+                            )
+                        )
+                    else:
+                        if recipient_email:
+                            steps.append(
+                                await _call(
+                                    session,
+                                    "transfers_share_transfer",
+                                    {"transfer_id": tid, "recipient_email": recipient_email},
+                                )
+                            )
+                        else:
+                            steps.append(
+                                ToolStep(
+                                    tool_name="transfers_share_transfer",
+                                    arguments={"transfer_id": tid, "recipient_email": "<missing STELLARBRIDGE_TEST_RECIPIENT_EMAIL>"},
+                                    status="SKIP",
+                                    note="Set STELLARBRIDGE_TEST_RECIPIENT_EMAIL to exercise share_transfer.",
+                                    parsed_json=None,
+                                    raw_text_preview="",
+                                )
+                            )
+                        steps.append(
+                            await _call(
+                                session,
+                                "transfers_add_transfer_to_drive",
+                                {"transfer_id": tid, "project_id": project_id},
+                            )
+                        )
+                        steps.append(await _call(session, "transfers_delete_transfer", {"transfer_id": tid}))
                 else:
                     steps.append(
                         ToolStep(
@@ -676,10 +712,12 @@ async def _run(repo_root: Path, *, project_id: int, recipient_email: str | None)
                     )
 
             # Multipart tool trio: initialize -> presigned_urls -> cancel
-            init = await _call(
+            init = await _call_with_retries(
                 session,
                 "transfers_initialize_multipart_upload",
                 {"file_name": f"mcp-live-multipart-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.bin", "size_bytes": 9_000_000},
+                retries=4,
+                base_sleep_s=1.0,
             )
             steps.append(init)
             init_data = _unwrap_data(init.parsed_json)
