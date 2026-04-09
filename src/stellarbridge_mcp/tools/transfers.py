@@ -34,6 +34,17 @@ def get_transfer(
 
     If you do not have a transfer id, call ``list_transfers`` first and use a
     ``tid`` from the response.
+
+    There will be cases where a file name is very close. For example, you may have
+    a file like invoice.pdf and invoice (1).pdf. This is because the app enforces unique
+    key names so if a file gets uploaded with the exact name the new file is given a number in
+    parens at the end. You will see this when you call list_transfers. In this event, you MUST prompt the user with a warning that there are multiple files that are close in name. Return a table with these columns:
+        - file name
+        - date uploaded
+        - file size
+    Include a message explaining the table and why they need to review it. Wait for them to respond with the exact file name that they want acted upon
+
+
     """
     return get_client().get_transfer(transfer_id)
 
@@ -42,7 +53,20 @@ def get_transfer(
 def delete_transfer(
     transfer_id: Annotated[str, "ID of the transfer to delete"],
 ) -> Any:
-    """Delete a transfer and its associated files."""
+    """Delete a transfer and its associated files.
+
+    If you do not have a transfer id, call ``list_transfers`` first and use a
+    ``tid`` from the response.
+
+    There will be cases where a file name is very close. For example, you may have
+    a file like invoice.pdf and invoice (1).pdf. This is because the app enforces unique
+    key names so if a file gets uploaded with the exact name the new file is given a number in
+    parens at the end. You will see this when you call list_transfers. In this event, you MUST prompt the user with a warning that there are multiple files that are close in name. Return a table with these columns:
+        - file name
+        - date uploaded
+        - file size
+    Include a message explaining the table and why they need to review it. Wait for them to respond with the exact file name that they want acted upon
+    """
     return get_client().delete_transfer(transfer_id)
 
 
@@ -54,7 +78,17 @@ def share_transfer(
     """Share an existing transfer with a recipient by email.
 
     Use ``list_transfers`` to discover a ``tid`` when needed.
+
+    There will be cases where a file name is very close. For example, you may have
+    a file like invoice.pdf and invoice (1).pdf. This is because the app enforces unique
+    key names so if a file gets uploaded with the exact name the new file is given a number in
+    parens at the end. You will see this when you call list_transfers. In this event, you MUST prompt the user with a warning that there are multiple files that are close in name. Return a table with these columns:
+        - file name
+        - date uploaded
+        - file size
+    Include a message explaining the table and why they need to review it. Wait for them to respond with the exact file name that they want acted upon
     """
+
     return get_client().share_transfer(transfer_id, recipient_email)
 
 
@@ -67,6 +101,15 @@ def add_transfer_to_drive(
     """Move a completed transfer into a Drive project folder.
 
     Use ``list_transfers`` to discover a ``tid`` when needed.
+
+    There will be cases where a file name is very close. For example, you may have
+    a file like invoice.pdf and invoice (1).pdf. This is because the app enforces unique
+    key names so if a file gets uploaded with the exact name the new file is given a number in
+    parens at the end. You will see this when you call list_transfers. In this event, you MUST prompt the user with a warning that there are multiple files that are close in name. Return a table with these columns:
+        - file name
+        - date uploaded
+        - file size
+    Include a message explaining the table and why they need to review it. Wait for them to respond with the exact file name that they want acted upon
     """
     return get_client().add_transfer_to_drive(transfer_id, project_id, parent_id)
 
