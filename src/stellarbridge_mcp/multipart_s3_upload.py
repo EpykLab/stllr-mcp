@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -158,6 +160,7 @@ def run_transfer_multipart_upload(
     if not path.is_file():
         raise FileNotFoundError(f"not a file: {path}")
 
+    started_at = time.time()
     total_size = path.stat().st_size
     display_name = file_name if file_name is not None else path.name
 
@@ -187,7 +190,7 @@ def run_transfer_multipart_upload(
         entries, path, total_size, part_size_bytes, timeout=http_timeout
     )
 
-    return client.finalize_multipart_upload(
+    finalized = client.finalize_multipart_upload(
         {
             "fileId": file_id,
             "fileKey": file_key,
@@ -195,3 +198,90 @@ def run_transfer_multipart_upload(
             "size": total_size,
         }
     )
+
+    def _extract_tid(raw: Any) -> str | None:
+        if not isinstance(raw, dict):
+            return None
+        for k in ("tid", "transferId", "transfer_id", "id"):
+            v = raw.get(k)
+            if isinstance(v, str) and v:
+                return v
+        data = raw.get("data")
+        if isinstance(data, dict):
+            for k in ("tid", "transferId", "transfer_id", "id"):
+                v = data.get(k)
+                if isinstance(v, str) and v:
+                    return v
+        return None
+
+    def _parse_created_at(v: Any) -> float | None:
+        if not isinstance(v, str) or not v:
+            return None
+        s = v.strip()
+        try:
+            if s.endswith("Z"):
+                dt = datetime.fromisoformat(s[:-1] + "+00:00")
+            else:
+                dt = datetime.fromisoformat(s)
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+
+    # If the finalize response doesn't include a transfer id, attempt a safe,
+    # best-effort resolution by listing transfers. Only return a tid when we
+    # have a single unambiguous match (name + size + createdAfter started_at).
+    if _extract_tid(finalized) is None:
+        attempts = 4
+        slack_s = 120.0
+        for i in range(attempts):
+            raw_list: Any
+            try:
+                raw_list = client.list_transfers(None)
+            except Exception:
+                raw_list = None
+
+            transfers: list[Any] = []
+            if isinstance(raw_list, list):
+                transfers = raw_list
+            elif isinstance(raw_list, dict):
+                if isinstance(raw_list.get("transfers"), list):
+                    transfers = raw_list["transfers"]
+                elif isinstance(raw_list.get("data"), list):
+                    transfers = raw_list["data"]
+                elif isinstance(raw_list.get("data"), dict) and isinstance(
+                    raw_list["data"].get("transfers"), list
+                ):
+                    transfers = raw_list["data"]["transfers"]
+
+            matches: list[str] = []
+            for t in transfers:
+                if not isinstance(t, dict):
+                    continue
+                nm = t.get("name") or t.get("fileName") or t.get("file_name") or t.get("filename")
+                if nm != display_name:
+                    continue
+                size = t.get("size") or t.get("sizeBytes") or t.get("size_bytes")
+                if isinstance(size, str) and size.isdigit():
+                    size = int(size, 10)
+                if size != total_size:
+                    continue
+                created_at = _parse_created_at(t.get("createdAt") or t.get("created_at"))
+                if created_at is not None and created_at < (started_at - slack_s):
+                    continue
+                tid = t.get("tid") or t.get("transferId") or t.get("transfer_id") or t.get("id")
+                if isinstance(tid, str) and tid:
+                    matches.append(tid)
+
+            if len(matches) == 1:
+                if isinstance(finalized, dict):
+                    out = dict(finalized)
+                    out.setdefault("transferId", matches[0])
+                    return out
+                return {"transferId": matches[0], "finalize": finalized}
+
+            if i < attempts - 1:
+                time.sleep(1.0 * (2**i))
+
+    return finalized

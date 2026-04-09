@@ -153,3 +153,47 @@ class TestRunTransferMultipartUpload:
         assert init_payload["size"] == 100
         client.get_multipart_presigned_urls.assert_called_once()
         client.finalize_multipart_upload.assert_called_once()
+
+    def test_resolves_tid_from_list_transfers_when_finalize_omits_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Avoid real sleeping in tests.
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+
+        f = tmp_path / "up.bin"
+        f.write_bytes(b"x" * 100)
+
+        client = MagicMock()
+        client.initialize_multipart_upload.return_value = {
+            "fileId": "fid",
+            "fileKey": "fkey",
+        }
+        client.get_multipart_presigned_urls.return_value = {
+            "parts": [{"partNumber": 1, "url": "https://s3/put"}],
+        }
+        # Backend sometimes returns a message only, without tid.
+        client.finalize_multipart_upload.return_value = {"data": {"message": "object uploaded"}}
+        client.list_transfers.return_value = [
+            {
+                "name": "n.bin",
+                "size": 100,
+                "createdAt": "2099-01-01T00:00:00Z",
+                "tid": "tid-from-list",
+            }
+        ]
+
+        with patch(
+            "stellarbridge_mcp.multipart_s3_upload.put_multipart_parts_to_s3"
+        ) as put:
+            put.return_value = [{"PartNumber": 1, "ETag": "e"}]
+
+            result = run_transfer_multipart_upload(
+                client,
+                f,
+                file_name="n.bin",
+                part_size_bytes=MIN_PART_SIZE_BYTES,
+                http_timeout=5.0,
+            )
+
+        assert result["transferId"] == "tid-from-list"
+        client.list_transfers.assert_called()

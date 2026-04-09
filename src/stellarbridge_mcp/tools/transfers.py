@@ -175,8 +175,10 @@ def upload_transfer_multipart_file(
     and network access from the MCP process to the API and to S3.
 
     Note: the finalize response may not include the created transfer id (``tid``).
-    In that case, call ``list_transfers`` and select the target transfer by name
-    (or by other metadata) before calling tools like ``get_transfer`` or
+    The MCP will attempt a safe best-effort lookup via ``list_transfers`` to
+    populate ``transferId`` when possible (unambiguous match by name+size).
+    If it cannot be resolved reliably, call ``list_transfers`` and select the
+    target transfer by name before calling tools like ``get_transfer`` or
     ``add_transfer_to_drive``.
     """
     return run_transfer_multipart_upload(
