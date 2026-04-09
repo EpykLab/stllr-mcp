@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from random import random
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -121,6 +123,30 @@ def put_multipart_parts_to_s3(
     timeout: float,
 ) -> list[dict[str, Any]]:
     """HTTP PUT each file segment to its presigned URL; return finalize payload parts."""
+
+    # Use the same retry knobs as API requests. This primarily protects multipart
+    # uploads from transient throttling/SlowDown responses from the presigned PUT.
+    from .config import settings
+
+    max_retries = max(0, int(getattr(settings, "http_max_retries", 0)))
+    base_sleep = float(getattr(settings, "http_retry_base_sleep_s", 1.0))
+    max_sleep = float(getattr(settings, "http_retry_max_sleep_s", 30.0))
+
+    def _retry_after_seconds(resp: httpx.Response) -> float | None:
+        raw = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
+        if not raw:
+            return None
+        raw = raw.strip()
+        if raw.isdigit():
+            return float(int(raw, 10))
+        try:
+            dt = parsedate_to_datetime(raw)
+        except Exception:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (dt.timestamp() - time.time()))
+
     sorted_entries = sorted(presigned_entries, key=lambda x: x[0])
     num_parts = len(sorted_entries)
     ranges = byte_ranges_for_parts(total_size, part_size_bytes, num_parts)
@@ -133,8 +159,31 @@ def put_multipart_parts_to_s3(
             for (part_number, url), (start, length) in zip(sorted_entries, ranges, strict=True):
                 f.seek(start)
                 chunk = f.read(length) if length > 0 else b""
-                resp = http_client.put(url, content=chunk)
-                resp.raise_for_status()
+                attempt = 0
+                while True:
+                    attempt += 1
+                    try:
+                        resp = http_client.put(url, content=chunk)
+                    except httpx.HTTPError:
+                        if attempt <= max_retries:
+                            sleep_s = min(
+                                max_sleep,
+                                max(0.0, base_sleep * (2 ** (attempt - 1)) + (random() * 0.25)),
+                            )
+                            time.sleep(sleep_s)
+                            continue
+                        raise
+
+                    # Retry transient throttling/availability issues.
+                    if resp.status_code in (429, 500, 502, 503, 504) and attempt <= max_retries:
+                        ra = _retry_after_seconds(resp)
+                        sleep_s = ra if ra is not None else base_sleep * (2 ** (attempt - 1))
+                        sleep_s = min(max_sleep, max(0.0, sleep_s + (random() * 0.25)))
+                        time.sleep(sleep_s)
+                        continue
+
+                    resp.raise_for_status()
+                    break
                 etag_header = resp.headers.get("ETag") or resp.headers.get("etag")
                 if not etag_header:
                     raise RuntimeError(

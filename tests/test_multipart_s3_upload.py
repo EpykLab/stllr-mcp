@@ -114,8 +114,40 @@ class TestPutMultipartPartsToS3:
             assert mock_client.put.call_args_list[0][0][0] == "https://s3/p1"
             assert mock_client.put.call_args_list[0][1]["content"] == b"abcde"
             assert mock_client.put.call_args_list[1][1]["content"] == b"fghij"
-            assert out[0]["PartNumber"] == 1
-            assert out[1]["PartNumber"] == 2
+        assert out[0]["PartNumber"] == 1
+        assert out[1]["PartNumber"] == 2
+
+    def test_retries_429_then_succeeds(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Avoid real sleeping in tests.
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+
+        p = tmp_path / "f.bin"
+        p.write_bytes(b"abcdefghij")
+        entries = [(1, "https://s3/p1")]
+
+        with patch("stellarbridge_mcp.multipart_s3_upload.httpx.Client") as C:
+            resp_429 = MagicMock()
+            resp_429.status_code = 429
+            resp_429.headers = {"Retry-After": "0"}
+            resp_429.raise_for_status = MagicMock()
+
+            resp_ok = MagicMock()
+            resp_ok.status_code = 200
+            resp_ok.headers = {"ETag": '"e1"'}
+            resp_ok.raise_for_status = MagicMock()
+
+            mock_client = MagicMock()
+            mock_client.put.side_effect = [resp_429, resp_ok]
+
+            ctx = MagicMock()
+            ctx.__enter__.return_value = mock_client
+            ctx.__exit__.return_value = None
+            C.return_value = ctx
+
+            out = put_multipart_parts_to_s3(entries, p, total_size=10, part_size_bytes=5, timeout=30.0)
+
+            assert out == [{"PartNumber": 1, "ETag": "e1"}]
+            assert mock_client.put.call_count == 2
 
 
 class TestRunTransferMultipartUpload:
