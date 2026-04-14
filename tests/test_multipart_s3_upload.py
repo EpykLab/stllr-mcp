@@ -114,8 +114,40 @@ class TestPutMultipartPartsToS3:
             assert mock_client.put.call_args_list[0][0][0] == "https://s3/p1"
             assert mock_client.put.call_args_list[0][1]["content"] == b"abcde"
             assert mock_client.put.call_args_list[1][1]["content"] == b"fghij"
-            assert out[0]["PartNumber"] == 1
-            assert out[1]["PartNumber"] == 2
+        assert out[0]["PartNumber"] == 1
+        assert out[1]["PartNumber"] == 2
+
+    def test_retries_429_then_succeeds(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Avoid real sleeping in tests.
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+
+        p = tmp_path / "f.bin"
+        p.write_bytes(b"abcdefghij")
+        entries = [(1, "https://s3/p1")]
+
+        with patch("stellarbridge_mcp.multipart_s3_upload.httpx.Client") as C:
+            resp_429 = MagicMock()
+            resp_429.status_code = 429
+            resp_429.headers = {"Retry-After": "0"}
+            resp_429.raise_for_status = MagicMock()
+
+            resp_ok = MagicMock()
+            resp_ok.status_code = 200
+            resp_ok.headers = {"ETag": '"e1"'}
+            resp_ok.raise_for_status = MagicMock()
+
+            mock_client = MagicMock()
+            mock_client.put.side_effect = [resp_429, resp_ok]
+
+            ctx = MagicMock()
+            ctx.__enter__.return_value = mock_client
+            ctx.__exit__.return_value = None
+            C.return_value = ctx
+
+            out = put_multipart_parts_to_s3(entries, p, total_size=10, part_size_bytes=5, timeout=30.0)
+
+            assert out == [{"PartNumber": 1, "ETag": "e1"}]
+            assert mock_client.put.call_count == 2
 
 
 class TestRunTransferMultipartUpload:
@@ -153,3 +185,47 @@ class TestRunTransferMultipartUpload:
         assert init_payload["size"] == 100
         client.get_multipart_presigned_urls.assert_called_once()
         client.finalize_multipart_upload.assert_called_once()
+
+    def test_resolves_tid_from_list_transfers_when_finalize_omits_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Avoid real sleeping in tests.
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+
+        f = tmp_path / "up.bin"
+        f.write_bytes(b"x" * 100)
+
+        client = MagicMock()
+        client.initialize_multipart_upload.return_value = {
+            "fileId": "fid",
+            "fileKey": "fkey",
+        }
+        client.get_multipart_presigned_urls.return_value = {
+            "parts": [{"partNumber": 1, "url": "https://s3/put"}],
+        }
+        # Backend sometimes returns a message only, without tid.
+        client.finalize_multipart_upload.return_value = {"data": {"message": "object uploaded"}}
+        client.list_transfers.return_value = [
+            {
+                "name": "n.bin",
+                "size": 100,
+                "createdAt": "2099-01-01T00:00:00Z",
+                "tid": "tid-from-list",
+            }
+        ]
+
+        with patch(
+            "stellarbridge_mcp.multipart_s3_upload.put_multipart_parts_to_s3"
+        ) as put:
+            put.return_value = [{"PartNumber": 1, "ETag": "e"}]
+
+            result = run_transfer_multipart_upload(
+                client,
+                f,
+                file_name="n.bin",
+                part_size_bytes=MIN_PART_SIZE_BYTES,
+                http_timeout=5.0,
+            )
+
+        assert result["transferId"] == "tid-from-list"
+        client.list_transfers.assert_called()

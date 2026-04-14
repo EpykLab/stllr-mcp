@@ -6,6 +6,7 @@ The current client authenticates by sending X-API-Key on every request.
 from __future__ import annotations
 
 import json
+import time as time_module
 
 import httpx
 import pytest
@@ -22,6 +23,9 @@ def reset_settings(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config.settings, "api_key", "test-api-key")
     monkeypatch.setattr(config.settings, "jwt_token", "")
     monkeypatch.setattr(config.settings, "http_timeout", 5.0)
+    monkeypatch.setattr(config.settings, "http_max_retries", 2)
+    monkeypatch.setattr(config.settings, "http_retry_base_sleep_s", 0.0)
+    monkeypatch.setattr(config.settings, "http_retry_max_sleep_s", 0.0)
 
 
 class TestRequestHeaders:
@@ -116,6 +120,36 @@ class TestRequestBehavior:
         )
         client = StellarBridgeClient()
         assert client.delete_object(1) is None
+
+    def test_retries_on_429_then_succeeds(self, httpx_mock: pytest_httpx.HTTPXMock, monkeypatch: pytest.MonkeyPatch):
+        # Avoid real sleeping in tests.
+        sleeps: list[float] = []
+
+        def _fake_sleep(s: float) -> None:
+            sleeps.append(float(s))
+
+        monkeypatch.setattr(time_module, "sleep", _fake_sleep)
+
+        httpx_mock.add_response(
+            method="GET",
+            url="http://localhost:8080/api/v1/projects",
+            status_code=429,
+            headers={"Retry-After": "0"},
+            json={"error": {"message": "rate limited"}},
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url="http://localhost:8080/api/v1/projects",
+            json={"data": {"projects": []}, "error": None},
+        )
+
+        client = StellarBridgeClient()
+        result = client.list_projects()
+        assert result["data"]["projects"] == []
+
+        # Two requests: initial 429 + retry.
+        assert len(httpx_mock.get_requests()) == 2
+        assert len(sleeps) >= 1
 
     def test_delete_object_unwraps_api_envelope(self, httpx_mock: pytest_httpx.HTTPXMock):
         httpx_mock.add_response(
