@@ -699,30 +699,8 @@ async def _run(
 
             steps.append(await _call(session, "drive_list_object_policy_attachments", {"object_id": placeholder_id}))
 
-            # Policy mutation tools are intentionally NOT exercised.
-            # Agents are explicitly banned from mutating policies in the API.
-            if "drive_attach_policy_to_object" in tool_names:
-                steps.append(
-                    ToolStep(
-                        tool_name="drive_attach_policy_to_object",
-                        arguments={"object_id": placeholder_id, "policy_id": "<not exercised>"},
-                        status="SKIP",
-                        note="Not exercised: policy mutations are banned for agent/API-key workflows.",
-                        parsed_json=None,
-                        raw_text_preview="",
-                    )
-                )
-            if "drive_detach_policy_from_object" in tool_names:
-                steps.append(
-                    ToolStep(
-                        tool_name="drive_detach_policy_from_object",
-                        arguments={"object_id": placeholder_id, "attachment_id": "<not exercised>"},
-                        status="SKIP",
-                        note="Not exercised: policy mutations are banned for agent/API-key workflows.",
-                        parsed_json=None,
-                        raw_text_preview="",
-                    )
-                )
+            # Policy mutation tools (attach/detach) were removed from the MCP surface.
+            # list_object_policy_attachments is tested above.
 
             # Upload URL -> PUT -> complete
             if not _FIXTURE.is_file():
