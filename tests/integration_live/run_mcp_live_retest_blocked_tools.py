@@ -26,9 +26,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 
 RETEST_TOOL_NAMES: tuple[str, ...] = (
-    "drive_attach_policy_to_object",
     "drive_delete_drive_object",
-    "drive_detach_policy_from_object",
     "drive_get_drive_download_url",
     "drive_share_drive_object",
     "projects_delete_project",
@@ -387,14 +385,6 @@ def _write_report(*, path: Path, steps: list[StepResult]) -> None:
     by_tool: dict[str, StepResult] = {s.tool_name: s for s in steps}
     notes: dict[str, str] = {}
     # Static skip notes for tools that require out-of-band IDs.
-    notes.setdefault(
-        "drive_attach_policy_to_object",
-        "Requires STELLARBRIDGE_TEST_POLICY_ID and object permissions; not exercised in this workflow.",
-    )
-    notes.setdefault(
-        "drive_detach_policy_from_object",
-        "Requires STELLARBRIDGE_TEST_ATTACHMENT_ID; not exercised in this workflow.",
-    )
     notes.setdefault(
         "projects_delete_project",
         "Requires an empty disposable project id; not exercised in this workflow.",

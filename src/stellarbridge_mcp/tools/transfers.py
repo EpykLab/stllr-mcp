@@ -22,6 +22,11 @@ def list_transfers(
 
     Each item includes a transfer id (``tid``) for ``get_transfer`` and related
     tools when you do not already have an id.
+
+    Note: the API enforces unique file key names. If a file is uploaded with a
+    name that already exists, the new file may be renamed (e.g.
+    ``invoice.pdf`` -> ``invoice (1).pdf``). When selecting a transfer by name,
+    verify the exact file name in the list before acting on it.
     """
     return get_client().list_transfers(org_id)
 

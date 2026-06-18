@@ -204,36 +204,6 @@
       ]
     },
     {
-      "id": "13",
-      "name": "Attach a Policy to an Object",
-      "description": "Plan how to attach an access policy to a Drive object.",
-      "success_criteria": [
-        "Ask for object_id and policy_id.",
-        "Plan includes a policy attach action.",
-        "Do not execute tool calls."
-      ],
-      "prompt_variants": [
-        { "id": "a", "prompt": "Attach policy_id 9 to Drive object_id 28." },
-        { "id": "b", "prompt": "Apply an access policy to this folder so downloads are restricted (planning only)." },
-        { "id": "c", "prompt": "I want to apply a policy to a Drive item; I know the policy id and object id." }
-      ]
-    },
-    {
-      "id": "14",
-      "name": "Detach a Policy Attachment",
-      "description": "Plan how to remove a specific policy attachment from a Drive object.",
-      "success_criteria": [
-        "Ask for object_id and attachment_id.",
-        "Plan includes a detach action.",
-        "Do not execute tool calls."
-      ],
-      "prompt_variants": [
-        { "id": "a", "prompt": "Remove policy attachment att-2 from Drive object_id 28." },
-        { "id": "b", "prompt": "Detach a policy from this Drive folder (I have the attachment id)." },
-        { "id": "c", "prompt": "Undo an access policy attachment on a Drive object (planning only)." }
-      ]
-    },
-    {
       "id": "15",
       "name": "List Recent Transfers",
       "description": "Find recent transfers (uploads) and identify a transfer id for follow-up actions.",
@@ -342,8 +312,6 @@
     { "tool_name": "drive_get_drive_download_url", "prompt": "Get a download URL for Drive file object_id 88." },
     { "tool_name": "drive_share_drive_object", "prompt": "Share Drive file object_id 88 with recipient alice@example.com." },
     { "tool_name": "drive_list_object_policy_attachments", "prompt": "List policy attachments for Drive object_id 28." },
-    { "tool_name": "drive_attach_policy_to_object", "prompt": "Attach policy_id 9 to Drive object_id 28." },
-    { "tool_name": "drive_detach_policy_from_object", "prompt": "Detach attachment_id att-2 from Drive object_id 28." },
 
     { "tool_name": "transfers_list_transfers", "prompt": "List transfers (optionally filtered by org_id if I provide it)." },
     { "tool_name": "transfers_get_transfer", "prompt": "Get transfer metadata for transfer_id tid-1." },
