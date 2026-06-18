@@ -30,10 +30,7 @@
 ### Cleanup
 - ✅ **Remove policy mutation tools** — `drive_attach_policy_to_object` and `drive_detach_policy_from_object` removed from MCP surface (PR #22)
 - ✅ **Retry configuration** — `http_max_retries`, `http_retry_base_sleep_s`, `http_retry_max_sleep_s` in config
-
-## In Progress
-
-- 🔄 **PR #22 review** — cleanup/remove-policy-mutation-tools branch; removing banned policy tools from source, tests, and docs
+- ✅ **Project roadmap** — GitHub Project created for tracking completed and planned work
 
 ## Planned
 
