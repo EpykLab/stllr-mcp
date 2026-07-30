@@ -82,7 +82,6 @@ Use these to validate the MCP server against a **real** Stellarbridge API (stagi
 | `STELLARBRIDGE_TEST_DELETE_OBJECT_ID` | Disposable object ID for `drive_delete_drive_object`. |
 | `STELLARBRIDGE_TEST_FILE_PLACEHOLDER_OBJECT_ID` | File placeholder for upload/complete URL tools (falls back to `STELLARBRIDGE_TEST_OBJECT_ID`). |
 | `STELLARBRIDGE_TEST_DOWNLOAD_OBJECT_ID` | File object for download URL (falls back to `STELLARBRIDGE_TEST_OBJECT_ID`). |
-| `STELLARBRIDGE_TEST_POLICY_ID` / `STELLARBRIDGE_TEST_ATTACHMENT_ID` | Policy attach/detach live tests. |
 | `STELLARBRIDGE_TEST_TRANSFER_ID` | Transfer id (uuid). If unset, obtain a `tid` from MCP tool **`transfers_list_transfers`** (each row has `tid`), or `task live-first-transfer-id`. |
 | `STELLARBRIDGE_TEST_PUBLIC_TRANSFER_ID` | Public transfer id (falls back to `STELLARBRIDGE_TEST_TRANSFER_ID`). |
 | `STELLARBRIDGE_TEST_DELETE_TRANSFER_ID` | Disposable transfer for `transfers_delete_transfer`. |
