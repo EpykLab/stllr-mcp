@@ -272,28 +272,6 @@ def _drive_list_object_policy_attachments(_repo_root: Path) -> tuple[dict[str, A
     return {"object_id": oid}, ""
 
 
-def _drive_attach_policy_to_object(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
-    r = _require_mutation_allow()
-    if r is not None:
-        return None, r
-    oid = _env_int("STELLARBRIDGE_TEST_OBJECT_ID")
-    policy = _env_int("STELLARBRIDGE_TEST_POLICY_ID")
-    if oid is None or policy is None:
-        return None, "Set STELLARBRIDGE_TEST_OBJECT_ID and STELLARBRIDGE_TEST_POLICY_ID."
-    return {"object_id": oid, "policy_id": policy}, ""
-
-
-def _drive_detach_policy_from_object(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
-    r = _require_mutation_allow()
-    if r is not None:
-        return None, r
-    oid = _env_int("STELLARBRIDGE_TEST_OBJECT_ID")
-    att = _env_str("STELLARBRIDGE_TEST_ATTACHMENT_ID")
-    if oid is None or not att:
-        return None, "Set STELLARBRIDGE_TEST_OBJECT_ID and STELLARBRIDGE_TEST_ATTACHMENT_ID."
-    return {"object_id": oid, "attachment_id": att}, ""
-
-
 def _transfers_list_transfers(_repo_root: Path) -> tuple[dict[str, Any] | None, str]:
     org = _env_str("STELLARBRIDGE_TEST_ORG_ID")
     if org:
@@ -510,12 +488,10 @@ _LIVE_TOOL_SPECS_RAW: tuple[LiveToolSpec, ...] = (
     LiveToolSpec("audit_get_audit_logs", _audit_get_audit_logs),
     LiveToolSpec("audit_get_audit_logs_for_actor", _audit_get_audit_logs_for_actor),
     LiveToolSpec("audit_get_audit_logs_for_file", _audit_get_audit_logs_for_file),
-    LiveToolSpec("drive_attach_policy_to_object", _drive_attach_policy_to_object),
     LiveToolSpec("drive_complete_drive_upload", _drive_complete_drive_upload),
     LiveToolSpec("drive_create_drive_file_placeholder", _drive_create_drive_file_placeholder),
     LiveToolSpec("drive_create_drive_folder", _drive_create_drive_folder),
     LiveToolSpec("drive_delete_drive_object", _drive_delete_drive_object),
-    LiveToolSpec("drive_detach_policy_from_object", _drive_detach_policy_from_object),
     LiveToolSpec("drive_get_drive_download_url", _drive_get_drive_download_url),
     LiveToolSpec("drive_get_drive_object", _drive_get_drive_object),
     LiveToolSpec("drive_get_drive_upload_url", _drive_get_drive_upload_url),
